@@ -4,7 +4,9 @@
   "description": "DJI Avinox M1/M2 Setup Calculator",
   "main": "src/server.ts",
   "scripts": {
-    "start": "ts-node src/server.ts"
+    "start": "ts-node src/server.ts",
+    "build": "tsc --outDir dist",
+    "serve": "node dist/server.js"
   },
   "dependencies": {
     "express": "^4.19.2"
