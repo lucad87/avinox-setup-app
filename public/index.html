@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,19 +8,23 @@
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
 </head>
-<body class="bg-gray-900 text-gray-100 min-h-screen font-sans">
+
+<body class="bg-gray-900 text-gray-100 min-h-screen font-sans overflow-y-scroll">
     <div class="container mx-auto px-4 py-6 max-w-6xl">
-        
-        <div class="border-b border-gray-700 pb-3 mb-6 flex flex-col md:flex-row justify-between items-start md:items-end">
+
+        <div
+            class="border-b border-gray-700 pb-3 mb-6 flex flex-col md:flex-row justify-between items-start md:items-end">
             <div>
                 <h1 class="text-2xl font-black text-white uppercase tracking-wider">Avinox Ecosystem Panel</h1>
                 <p class="text-xs text-gray-400 italic">Advanced Bio-Mechanical Tuning & Reference Base</p>
             </div>
             <div class="flex space-x-2 mt-4 md:mt-0">
-                <button id="tabCalcBtn" onclick="switchTab('calc')" class="bg-blue-600 text-white font-bold text-xs uppercase tracking-wider py-2 px-4 rounded transition focus:outline-none">
+                <button id="tabCalcBtn" onclick="switchTab('calc')"
+                    class="bg-blue-600 text-white font-bold text-xs uppercase tracking-wider py-2 px-4 rounded transition focus:outline-none">
                     ⚙️ Setup Calculator
                 </button>
-                <button id="tabGuideBtn" onclick="switchTab('guide')" class="bg-gray-800 text-gray-400 hover:text-white font-bold text-xs uppercase tracking-wider py-2 px-4 rounded transition focus:outline-none">
+                <button id="tabGuideBtn" onclick="switchTab('guide')"
+                    class="bg-gray-800 text-gray-400 hover:text-white font-bold text-xs uppercase tracking-wider py-2 px-4 rounded transition focus:outline-none">
                     📖 Hemmersbach Guide Extracts
                 </button>
             </div>
@@ -31,29 +36,38 @@
                     <h2 class="text-lg font-bold text-blue-400 mb-3 uppercase tracking-wide">Rider Variables</h2>
                     <form id="calcForm" class="space-y-3 text-sm">
                         <div>
-                            <label class="block text-xs font-semibold text-gray-400 mb-1">Rider Weight (kg, geared up)</label>
-                            <input type="number" id="riderWeight" value="82" required class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white focus:outline-none focus:border-blue-500">
+                            <label class="block text-xs font-semibold text-gray-400 mb-1">Rider Weight (kg, geared
+                                up)</label>
+                            <input type="number" id="riderWeight" value="82" required
+                                class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white focus:outline-none focus:border-blue-500">
                         </div>
                         <div>
                             <label class="block text-xs font-semibold text-gray-400 mb-1">Bike Total Weight (kg)</label>
-                            <input type="number" id="bikeWeight" value="23" required class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white focus:outline-none focus:border-blue-500">
+                            <input type="number" id="bikeWeight" value="23" required
+                                class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white focus:outline-none focus:border-blue-500">
                         </div>
                         <div>
                             <label class="block text-xs font-semibold text-gray-400 mb-1">Target Cadence (RPM)</label>
-                            <input type="number" id="cadence" value="75" required class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white focus:outline-none focus:border-blue-500">
+                            <input type="number" id="cadence" value="75" required
+                                class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white focus:outline-none focus:border-blue-500">
                         </div>
                         <div>
-                            <label class="block text-xs font-semibold text-gray-400 mb-1">Human Power Output (Watts)</label>
-                            <input type="number" id="riderPower" value="200" required class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white focus:outline-none focus:border-blue-500">
+                            <label class="block text-xs font-semibold text-gray-400 mb-1">Human Power Output
+                                (Watts)</label>
+                            <input type="number" id="riderPower" value="200" required
+                                class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white focus:outline-none focus:border-blue-500">
                         </div>
-                        <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded transition uppercase tracking-wider mt-1 text-xs">Generate Setup</button>
+                        <button type="submit"
+                            class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded transition uppercase tracking-wider mt-1 text-xs">Generate
+                            Setup</button>
                     </form>
                 </div>
 
                 <div class="lg:col-span-2 bg-gray-800 p-5 rounded-lg border border-gray-700">
                     <div class="flex justify-between items-center mb-4">
                         <h2 class="text-lg font-bold text-blue-400 uppercase tracking-wide">Optimized Assist Map</h2>
-                        <span id="sysWeight" class="bg-blue-900 text-blue-200 px-3 py-1 rounded text-xs font-bold">Total Weight: -- kg</span>
+                        <span id="sysWeight" class="bg-blue-900 text-blue-200 px-3 py-1 rounded text-xs font-bold">Total
+                            Weight: -- kg</span>
                     </div>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4" id="resultsGrid"></div>
                 </div>
@@ -62,23 +76,30 @@
 
         <div id="tabGuide" class="hidden space-y-6">
             <div class="bg-gray-800 p-5 rounded-lg border border-gray-700">
-                <h2 class="text-lg font-bold text-orange-400 mb-3 uppercase tracking-wide">1. The Fundamental Formula of Avinox Systems</h2>
-                <div class="bg-gray-900 p-4 rounded border border-gray-700 font-mono text-sm text-center text-yellow-400 my-2">
+                <h2 class="text-lg font-bold text-orange-400 mb-3 uppercase tracking-wide">1. The Fundamental Formula of
+                    Avinox Systems</h2>
+                <div
+                    class="bg-gray-900 p-4 rounded border border-gray-700 font-mono text-sm text-center text-yellow-400 my-2">
                     Motor Power (Watts) = (Max Torque [Nm] &times; Cadence [RPM]) / 9.55
                 </div>
                 <p class="text-sm text-gray-300 mt-2">
-                    The DJI engine does not deliver a static 1000 W output. Power output relies structurally on your pedaling frequency:
+                    The DJI engine does not deliver a static 1000 W output. Power output relies structurally on your
+                    pedaling frequency:
                 </p>
                 <ul class="list-disc list-inside text-xs text-gray-400 mt-2 space-y-1 pl-2">
-                    <li>Lazy Pedaling (<strong>52 RPM</strong> inside 12th gear): The engine physical ceiling is capped at <strong>572 Watts</strong>.</li>
-                    <li>Radsportler Cadence (<strong>90 RPM</strong> inside 9th gear): Unlocks the system potential up to <strong>990 Watts</strong>.</li>
+                    <li>Lazy Pedaling (<strong>52 RPM</strong> inside 12th gear): The engine physical ceiling is capped
+                        at <strong>572 Watts</strong>.</li>
+                    <li>Radsportler Cadence (<strong>90 RPM</strong> inside 9th gear): Unlocks the system potential up
+                        to <strong>990 Watts</strong>.</li>
                 </ul>
             </div>
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div class="bg-gray-800 p-5 rounded-lg border border-gray-700">
-                    <h2 class="text-lg font-bold text-orange-400 mb-3 uppercase tracking-wide">2. Real Assist Ratio Mappings</h2>
-                    <p class="text-xs text-gray-400 mb-3">Empirical values extracted by test benches on steep asphalt tracks (safety barrier below 25km/h limit):</p>
+                    <h2 class="text-lg font-bold text-orange-400 mb-3 uppercase tracking-wide">2. Real Assist Ratio
+                        Mappings</h2>
+                    <p class="text-xs text-gray-400 mb-3">Empirical values extracted by test benches on steep asphalt
+                        tracks (safety barrier below 25km/h limit):</p>
                     <div class="overflow-x-auto">
                         <table class="w-full text-left text-xs border border-gray-700">
                             <thead class="bg-gray-900 text-gray-300 uppercase tracking-wider">
@@ -89,27 +110,62 @@
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-gray-700 text-gray-300">
-                                <tr><td class="p-2 border border-gray-700 font-bold">Level 1</td><td class="p-2 border border-gray-700">30%</td><td class="p-2 border border-gray-700 text-gray-500">Minimum interaction</td></tr>
-                                <tr class="bg-gray-700"><td class="p-2 border border-gray-700 font-bold text-green-400">Level 3</td><td class="p-2 border border-gray-700 text-green-400">80%</td><td class="p-2 border border-gray-700">Optimal ECO Efficiency Base</td></tr>
-                                <tr><td class="p-2 border border-gray-700 font-bold">Level 4</td><td class="p-2 border border-gray-700">100%</td><td class="p-2 border border-gray-700 text-gray-500">Natural matching 1:1</td></tr>
-                                <tr class="bg-gray-700"><td class="p-2 border border-gray-700 font-bold text-blue-400">Level 6</td><td class="p-2 border border-gray-700 text-blue-400">150%</td><td class="p-2 border border-gray-700">AUTO Floor standard threshold</td></tr>
-                                <tr><td class="p-2 border border-gray-700 font-bold text-yellow-500">Level 9</td><td class="p-2 border border-gray-700 text-yellow-500">300%</td><td class="p-2 border border-gray-700">TRAIL Technical Elevation Peak</td></tr>
-                                <tr class="bg-gray-700"><td class="p-2 border border-gray-700 font-bold text-red-400">Level 11</td><td class="p-2 border border-gray-700 text-red-400">450%</td><td class="p-2 border border-gray-700">TURBO Acceleration Ceiling</td></tr>
-                                <tr><td class="p-2 border border-gray-700 font-bold">Level 13</td><td class="p-2 border border-gray-700">675%</td><td class="p-2 border border-gray-700 text-gray-500">Extreme high energy drain</td></tr>
+                                <tr>
+                                    <td class="p-2 border border-gray-700 font-bold">Level 1</td>
+                                    <td class="p-2 border border-gray-700">30%</td>
+                                    <td class="p-2 border border-gray-700 text-gray-500">Minimum interaction</td>
+                                </tr>
+                                <tr class="bg-gray-700">
+                                    <td class="p-2 border border-gray-700 font-bold text-green-400">Level 3</td>
+                                    <td class="p-2 border border-gray-700 text-green-400">80%</td>
+                                    <td class="p-2 border border-gray-700">Optimal ECO Efficiency Base</td>
+                                </tr>
+                                <tr>
+                                    <td class="p-2 border border-gray-700 font-bold">Level 4</td>
+                                    <td class="p-2 border border-gray-700">100%</td>
+                                    <td class="p-2 border border-gray-700 text-gray-500">Natural matching 1:1</td>
+                                </tr>
+                                <tr class="bg-gray-700">
+                                    <td class="p-2 border border-gray-700 font-bold text-blue-400">Level 6</td>
+                                    <td class="p-2 border border-gray-700 text-blue-400">150%</td>
+                                    <td class="p-2 border border-gray-700">AUTO Floor standard threshold</td>
+                                </tr>
+                                <tr>
+                                    <td class="p-2 border border-gray-700 font-bold text-yellow-500">Level 9</td>
+                                    <td class="p-2 border border-gray-700 text-yellow-500">300%</td>
+                                    <td class="p-2 border border-gray-700">TRAIL Technical Elevation Peak</td>
+                                </tr>
+                                <tr class="bg-gray-700">
+                                    <td class="p-2 border border-gray-700 font-bold text-red-400">Level 11</td>
+                                    <td class="p-2 border border-gray-700 text-red-400">450%</td>
+                                    <td class="p-2 border border-gray-700">TURBO Acceleration Ceiling</td>
+                                </tr>
+                                <tr>
+                                    <td class="p-2 border border-gray-700 font-bold">Level 13</td>
+                                    <td class="p-2 border border-gray-700">675%</td>
+                                    <td class="p-2 border border-gray-700 text-gray-500">Extreme high energy drain</td>
+                                </tr>
                             </tbody>
                         </table>
                     </div>
                 </div>
 
                 <div class="bg-gray-800 p-5 rounded-lg border border-gray-700 space-y-3">
-                    <h2 class="text-lg font-bold text-orange-400 uppercase tracking-wide">3. Advanced Micro Adjust Logic</h2>
+                    <h2 class="text-lg font-bold text-orange-400 uppercase tracking-wide">3. Advanced Micro Adjust Logic
+                    </h2>
                     <div class="bg-gray-900 p-3 rounded border-l-4 border-yellow-500 text-xs text-gray-300">
-                        <strong>The Hidden Software Trap:</strong> Micro Adjust behaves differently based on the chosen mode type:
+                        <strong>The Hidden Software Trap:</strong> Micro Adjust behaves differently based on the chosen
+                        mode type:
                     </div>
                     <ul class="list-disc list-inside text-xs text-gray-400 space-y-2 pl-1">
-                        <li><strong>In ECO and TURBO (Static Modes):</strong> Adjusting shifts the single active Assist Level up or down instantly.</li>
-                        <li><strong>In AUTO and TRAIL (Dynamic Range Modes):</strong> The controller changes <strong>ONLY the upper bound value</strong>. If your Auto mode is set to Lvl 4-6, raising it moves the ceiling to 7, 8, or 9 while the floor stays at 4.</li>
-                        <li><strong class="text-red-400">Critical warning:</strong> If you push the upper value below the floor limit during an active ride, you will permanently degrade the minimum baseline. This cannot be fixed via Micro Adjust on the fly and requires an app reset.</li>
+                        <li><strong>In ECO and TURBO (Static Modes):</strong> Adjusting shifts the single active Assist
+                            Level up or down instantly.</li>
+                        <li><strong>In AUTO and TRAIL (Dynamic Range Modes):</strong> The controller changes
+                            <strong>ONLY the upper bound value</strong>. If your Auto mode is set to Lvl 4-6, raising it
+                            moves the ceiling to 7, 8, or 9 while the floor stays at 4.</li>
+                        <li><strong class="text-red-400">Critical warning:</strong> If you push the upper value below
+                            the floor limit during an active ride, you will permanently degrade the minimum baseline.
+                            This cannot be fixed via Micro Adjust on the fly and requires an app reset.</li>
                     </ul>
                 </div>
             </div>
@@ -118,31 +174,8 @@
     </div>
 
     <script>
-        function switchTab(tabName) {
-            const calcTab = document.getElementById('tabCalc');
-            const guideTab = document.getElementById('tabGuide');
-            const calcBtn = document.getElementById('tabCalcBtn');
-            const guideBtn = document.getElementById('tabGuideBtn');
-
-            if(tabName === 'calc') {
-                calcTab.classList.replace('hidden', 'block');
-                guideTab.classList.replace('block', 'hidden');
-                calcBtn.classList.replace('bg-gray-800', 'bg-blue-600');
-                calcBtn.classList.replace('text-gray-400', 'text-white');
-                guideBtn.classList.replace('bg-blue-600', 'bg-gray-800');
-                guideBtn.classList.replace('text-white', 'text-gray-400');
-            } else {
-                guideTab.classList.replace('hidden', 'block');
-                calcTab.classList.replace('block', 'hidden');
-                guideBtn.classList.replace('bg-gray-800', 'bg-blue-600');
-                guideBtn.classList.replace('text-gray-400', 'text-white');
-                calcBtn.classList.replace('bg-blue-600', 'bg-gray-800');
-                calcBtn.classList.replace('text-white', 'text-gray-400');
-            }
-        }
-
-        document.getElementById('calcForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
+        // 1. Isola la logica di calcolo in una funzione standalone
+        async function updateSetup() {
             const data = {
                 riderWeight: document.getElementById('riderWeight').value,
                 bikeWeight: document.getElementById('bikeWeight').value,
@@ -153,9 +186,9 @@
             try {
                 const response = await axios.post('/api/calculate', data);
                 const res = response.data;
-                
+
                 document.getElementById('sysWeight').innerText = 'Total Weight: ' + res.totalWeight + ' kg';
-                
+
                 const modes = [
                     { name: 'ECO', color: 'green', data: res.eco, desc: 'Maximum range baseline profile.' },
                     { name: 'AUTO', color: 'blue', data: res.auto, desc: 'Dynamic torque adjustments matching slopes.' },
@@ -187,9 +220,41 @@
             } catch (err) {
                 alert('Calculation failed. Check entries.');
             }
+        }
+
+        // 2. Gestisci l'evento submit del form in modo pulito
+        document.getElementById('calcForm').addEventListener('submit', (e) => {
+            e.preventDefault();
+            updateSetup();
         });
-        
-        document.getElementById('calcForm').dispatchEvent(new Event('submit'));
+
+        // 3. Esegui il calcolo automatico al primo caricamento della pagina
+        window.addEventListener('DOMContentLoaded', updateSetup);
+
+        // Controller per lo switch dei Tab
+        function switchTab(tabName) {
+            const calcTab = document.getElementById('tabCalc');
+            const guideTab = document.getElementById('tabGuide');
+            const calcBtn = document.getElementById('tabCalcBtn');
+            const guideBtn = document.getElementById('tabGuideBtn');
+
+            if (tabName === 'calc') {
+                calcTab.classList.replace('hidden', 'block');
+                guideTab.classList.replace('block', 'hidden');
+                calcBtn.classList.replace('bg-gray-800', 'bg-blue-600');
+                calcBtn.classList.replace('text-gray-400', 'text-white');
+                guideBtn.classList.replace('bg-blue-600', 'bg-gray-800');
+                guideBtn.classList.replace('text-white', 'text-gray-400');
+            } else {
+                guideTab.classList.replace('hidden', 'block');
+                calcTab.classList.replace('block', 'hidden');
+                guideBtn.classList.replace('bg-gray-800', 'bg-blue-600');
+                guideBtn.classList.replace('text-gray-400', 'text-white');
+                calcBtn.classList.replace('bg-blue-600', 'bg-gray-800');
+                calcBtn.classList.replace('text-white', 'text-gray-400');
+            }
+        }
     </script>
 </body>
+
 </html>
