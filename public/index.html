@@ -17,13 +17,13 @@
                 <p class="text-sm text-blue-400 font-medium mt-1">Calibrate the bio-mechanical parameters of your DJI Avinox engine and optimize battery range.</p>
             </div>
             <div class="grid grid-cols-1 sm:flex sm:flex-row gap-2 w-full lg:w-auto">
-                <button id="tabCalcBtn" onclick="switchTab('calc')" class="w-full sm:w-auto bg-blue-600 text-white font-bold text-xs uppercase tracking-wider py-2.5 px-5 rounded-xl shadow-lg transition focus:outline-none text-center">
+                <button id="tabCalcBtn" onclick="switchTab('calc')" class="bg-blue-600 text-white font-bold text-xs uppercase tracking-wider py-2.5 px-5 rounded-xl shadow-lg transition focus:outline-none text-center">
                     ⚙️ 1. Engine Tuner
                 </button>
-                <button id="tabMissionBtn" onclick="switchTab('mission')" class="w-full sm:w-auto bg-gray-800 text-gray-400 hover:text-white font-bold text-xs uppercase tracking-wider py-2.5 px-5 rounded-xl transition focus:outline-none text-center">
+                <button id="tabMissionBtn" onclick="switchTab('mission')" class="bg-gray-800 text-gray-400 hover:text-white font-bold text-xs uppercase tracking-wider py-2.5 px-5 rounded-xl transition focus:outline-none text-center">
                     🚴 2. Route Simulator
                 </button>
-                <button id="tabGuideBtn" onclick="switchTab('guide')" class="w-full sm:w-auto bg-gray-800 text-gray-400 hover:text-white font-bold text-xs uppercase tracking-wider py-2.5 px-5 rounded-xl transition focus:outline-none text-center">
+                <button id="tabGuideBtn" onclick="switchTab('guide')" class="bg-gray-800 text-gray-400 hover:text-white font-bold text-xs uppercase tracking-wider py-2.5 px-5 rounded-xl transition focus:outline-none text-center">
                     📖 3. Knowledge Base
                 </button>
             </div>
@@ -255,12 +255,12 @@
                     <p class="text-xs text-gray-500">How to use the manual sliders to mathematically manipulate motor output limits</p>
                 </div>
                 <p class="text-sm text-gray-300 leading-relaxed">
-                    By expanding the drawer on the tuner screen, you gain granular control over the electrical curves. Each slider represents the desired power target in <strong>Watts per Kilogram ($W/kg$)</strong> of total system weight. The application processes these thresholds to define specific app limits:
+                    By expanding the drawer on the tuner screen, you gain granular control over the electrical curves. Each slider represents the desired power target in <strong>Watts per Kilogram (W/kg)</strong> of total system weight. The application processes these thresholds to define specific app limits:
                 </p>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
                     <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 space-y-1">
                         <span class="font-bold text-green-400 uppercase block mb-1">ECO Slider (Range: 0.75 – 2.00 W/kg)</span>
-                        <p class="text-gray-400 leading-relaxed">Sets the baseline background support. Dropping it below $1.00\text{ W/kg}$ creates a highly natural feel that demands active muscle force but preserves tremendous battery life on flat transit paths.</p>
+                        <p class="text-gray-400 leading-relaxed">Sets the baseline background support. Dropping it below 1.00 W/kg creates a highly natural feel that demands active muscle force but preserves tremendous battery life on flat transit paths.</p>
                     </div>
                     <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 space-y-1">
                         <span class="font-bold text-blue-400 uppercase block mb-1">AUTO Slider (Range: 1.50 – 4.50 W/kg)</span>
@@ -268,7 +268,7 @@
                     </div>
                     <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 space-y-1">
                         <span class="font-bold text-yellow-500 uppercase block mb-1">TRAIL Slider (Range: 2.50 – 7.50 W/kg)</span>
-                        <p class="text-gray-400 leading-relaxed">Controls sustained technical singletrack delivery. Keeping this slider bounded between $5.00$ and $5.50\text{ W/kg}$ delivers exceptional technical climbing punch without spinning out or losing tire traction on loose gravel tracks.</p>
+                        <p class="text-gray-400 leading-relaxed">Controls sustained technical singletrack delivery. Keeping this slider bounded between 5.00 and 5.50 W/kg delivers exceptional technical climbing punch without spinning out or losing tire traction on loose gravel tracks.</p>
                     </div>
                     <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 space-y-1">
                         <span class="font-bold text-red-400 uppercase block mb-1">TURBO Slider (Range: 3.50 – 10.00 W/kg)</span>
@@ -280,24 +280,24 @@
             <div class="bg-gray-900 p-6 rounded-2xl border border-gray-800 shadow-xl space-y-4">
                 <div class="border-b border-gray-800 pb-3">
                     <h2 class="text-base font-black text-yellow-500 uppercase tracking-wider">🛠️ Parameters Dictionary & Logic Boundaries</h2>
-                    <p class="text-xs text-gray-500">Understanding the core mechanics behind the DJI Avinox control center</p>
+                    <p class="text-xs text-gray-500">Understanding the core thresholds of the DJI Avinox software</p>
                 </div>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
                     <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 space-y-1">
                         <h4 class="font-bold text-white uppercase tracking-wide flex justify-between"><span>Multiplier (W/kg)</span> <span class="text-yellow-500 text-xxs">Primary Input Variable</span></h4>
-                        <p class="text-gray-400 leading-relaxed">Determines the core support scaling relative to system weight. Shifting this factor automatically updates the math boundaries across the engine profile limits.</p>
+                        <p class="text-gray-400 leading-relaxed">Determines the motor power limits adjusted to the system total mass. Shifting this threshold automatically recalibrates all subsequent watt parameters across every active mode profile.</p>
                     </div>
                     <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 space-y-1">
-                        <h4 class="font-bold text-white uppercase tracking-wide flex justify-between"><span>Power Limit (Watts)</span> <span class="text-green-500 text-xxs">Battery Protection</span></h4>
-                        <p class="text-gray-400 leading-relaxed">The physical limit of ongoing electrical drain. Restricting this limit (e.g., 150W for ECO or 300W for AUTO) is the only definitive way to extend overall structural range.</p>
+                        <h4 class="font-bold text-white uppercase tracking-wide flex justify-between"><span>Power Limit (Watts)</span> <span class="text-green-500 text-xxs">Battery Control</span></h4>
+                        <p class="text-gray-400 leading-relaxed">Specifies the continuous electrical power maximum of the system. Restricting this limit (e.g., 150W in ECO) acts as the primary protection layer against premature battery drainage.</p>
                     </div>
                     <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 space-y-1">
-                        <h4 class="font-bold text-white uppercase tracking-wide flex justify-between"><span>Max Torque (Nm)</span> <span class="text-blue-500 text-xxs">Response Character</span></h4>
-                        <p class="text-gray-400 leading-relaxed">Specifies raw rotational force. Lower thresholds (20-40 Nm) deliver smooth, authentic pedal matching. Higher bounds (80-120 Nm) introduce aggressive, motorcycle-like engagement.</p>
+                        <h4 class="font-bold text-white uppercase tracking-wide flex justify-between"><span>Max Torque (Nm)</span> <span class="text-blue-500 text-xxs">Response Dynamics</span></h4>
+                        <p class="text-gray-400 leading-relaxed">Defines the peak turning force of the motor block. Lower settings offer smooth traction, while values exceeding 80 Nm produce a quick, dirtbike-like engagement on steep trails.</p>
                     </div>
                     <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 space-y-1">
-                        <h4 class="font-bold text-white uppercase tracking-wide flex justify-between"><span>Assist Level (Effort Multiplier)</span> <span class="text-purple-500 text-xxs">Bio-Mechanical Match</span></h4>
-                        <p class="text-gray-400 leading-relaxed">Dictates how many times the system multiplies your manual input force. Stronger riders require lower configurations, while high-fatigue terrain relies on higher engagement levels.</p>
+                        <h4 class="font-bold text-white uppercase tracking-wide flex justify-between"><span>Assist Level (Multiplier Factor)</span> <span class="text-purple-500 text-xxs">Bio-Mechanical Match</span></h4>
+                        <p class="text-gray-400 leading-relaxed">Determines how many times the motor multiplies your manual leg effort. Highly useful for compensating rider fatigue without changing the absolute power boundaries.</p>
                     </div>
                 </div>
             </div>
@@ -307,8 +307,8 @@
                     <h2 class="text-base font-black text-orange-400 uppercase tracking-wide">The Fundamental Formula of Avinox Systems</h2>
                     <p class="text-xs text-gray-500">The engineering mechanics balancing power delivery</p>
                 </div>
-                <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 font-mono text-sm text-center text-yellow-400 max-w-xl mx-auto my-2 shadow-inner">
-                    Motor Power (Watts) = (Max Torque [Nm] &times; Cadence [RPM]) / 9.55
+                <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 font-mono text-xs text-center text-yellow-400 max-w-xl mx-auto my-2 shadow-inner">
+                    Motor Power (W) = (Max Torque [Nm] &times; Cadence [RPM]) / 9.55
                 </div>
                 <p class="text-sm text-gray-300 leading-relaxed">
                     The DJI engine output relies structurally on your pedaling frequency:
@@ -316,11 +316,11 @@
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
                     <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 text-xs text-gray-400 leading-relaxed">
                         <span class="block font-bold text-red-400 mb-1.5 uppercase tracking-wide">⚠️ Lazy Cadence (52 RPM)</span>
-                        If you grind a tall gear, the physical output ceiling is electronically clamped at roughly <strong>572 Watts</strong>, wasting battery through thermal loss.
+                        If you grind a tall gear, the physical output ceiling is electronically clamped at roughly 572 Watts, wasting battery through thermal loss.
                     </div>
                     <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 text-xs text-gray-400 leading-relaxed">
                         <span class="block font-bold text-green-400 mb-1.5 uppercase tracking-wide">✅ Sport Cadence (90 RPM)</span>
-                        Spinning an agile gear fully unlocks the architecture's potential, unleashing up to <strong>990 Watts</strong> of fluid, uninterrupted electrical support.
+                        Spinning an agile gear fully unlocks the architecture's potential, unleashing up to 990 Watts of fluid, uninterrupted electrical support.
                     </div>
                 </div>
             </div>
@@ -417,6 +417,7 @@
         bindSliderAndText('trailWkg', 'trailWkgSlider');
         bindSliderAndText('turboWkg', 'turboWkgSlider');
 
+        // Preset mapping loaders
         function loadPreset(eco, auto, trail, turbo) {
             document.getElementById('ecoWkg').value = eco;
             document.getElementById('ecoWkgSlider').value = eco;
@@ -574,7 +575,6 @@
 
         window.addEventListener('DOMContentLoaded', updateSetup);
 
-        // Responsive-safe Tab Controller syncing DOM states dynamically
         function switchTab(tabName) {
             const calcTab = document.getElementById('tabCalc');
             const missionTab = document.getElementById('tabMission');
