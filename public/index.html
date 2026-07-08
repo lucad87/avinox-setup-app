@@ -16,14 +16,14 @@
                 <h1 class="text-3xl font-black text-white uppercase tracking-wider bg-clip-text text-transparent bg-gradient-to-r from-white to-gray-400">Avinox Ecosystem Panel</h1>
                 <p class="text-sm text-blue-400 font-medium mt-1">Calibrate the bio-mechanical parameters of your DJI Avinox engine and optimize battery range.</p>
             </div>
-            <div class="flex flex-row flex-nowrap whitespace-nowrap gap-2 overflow-x-auto lg:overflow-visible max-w-full pb-1 lg:pb-0">
-                <button id="tabCalcBtn" onclick="switchTab('calc')" class="bg-blue-600 text-white font-bold text-xs uppercase tracking-wider py-2.5 px-5 rounded-xl shadow-lg transition focus:outline-none">
+            <div class="grid grid-cols-1 sm:flex sm:flex-row gap-2 w-full lg:w-auto">
+                <button id="tabCalcBtn" onclick="switchTab('calc')" class="w-full sm:w-auto bg-blue-600 text-white font-bold text-xs uppercase tracking-wider py-2.5 px-5 rounded-xl shadow-lg transition focus:outline-none text-center">
                     ⚙️ 1. Engine Tuner
                 </button>
-                <button id="tabMissionBtn" onclick="switchTab('mission')" class="bg-gray-800 text-gray-400 hover:text-white font-bold text-xs uppercase tracking-wider py-2.5 px-5 rounded-xl transition focus:outline-none">
+                <button id="tabMissionBtn" onclick="switchTab('mission')" class="w-full sm:w-auto bg-gray-800 text-gray-400 hover:text-white font-bold text-xs uppercase tracking-wider py-2.5 px-5 rounded-xl transition focus:outline-none text-center">
                     🚴 2. Route Simulator
                 </button>
-                <button id="tabGuideBtn" onclick="switchTab('guide')" class="bg-gray-800 text-gray-400 hover:text-white font-bold text-xs uppercase tracking-wider py-2.5 px-5 rounded-xl transition focus:outline-none">
+                <button id="tabGuideBtn" onclick="switchTab('guide')" class="w-full sm:w-auto bg-gray-800 text-gray-400 hover:text-white font-bold text-xs uppercase tracking-wider py-2.5 px-5 rounded-xl transition focus:outline-none text-center">
                     📖 3. Knowledge Base
                 </button>
             </div>
@@ -150,13 +150,13 @@
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-6 bg-gray-900 p-6 rounded-2xl border border-gray-800 shadow-xl">
                         <div class="h-64 flex flex-col">
                             <h3 class="text-xxs font-black uppercase tracking-widest text-gray-400 mb-3 text-center" id="rangeChartTitle">Estimated Max Range (km)</h3>
-                            <div class="flex-1 relative w-full">
+                            <div class="flex-1 relative w-full px-2">
                                 <canvas id="rangeChart"></canvas>
                             </div>
                         </div>
                         <div class="h-64 flex flex-col">
                             <h3 class="text-xxs font-black uppercase tracking-widest text-gray-400 mb-3 text-center">Continuous Motor Runtime (Hours)</h3>
-                            <div class="flex-1 relative w-full">
+                            <div class="flex-1 relative w-full px-2">
                                 <canvas id="runtimeChart"></canvas>
                             </div>
                         </div>
@@ -255,12 +255,12 @@
                     <p class="text-xs text-gray-500">How to use the manual sliders to mathematically manipulate motor output limits</p>
                 </div>
                 <p class="text-sm text-gray-300 leading-relaxed">
-                    By expanding the <span class="text-yellow-500 font-bold">Sliders Avanzati</span> drawer on the tuner screen, you gain granular control over the electrical curves. Each slider represents the desired power target in <strong>Watts per Kilogram ($W/kg$)</strong> of total system weight. The application processes these thresholds to define specific app limits:
+                    By expanding the drawer on the tuner screen, you gain granular control over the electrical curves. Each slider represents the desired power target in <strong>Watts per Kilogram ($W/kg$)</strong> of total system weight. The application processes these thresholds to define specific app limits:
                 </p>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
                     <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 space-y-1">
                         <span class="font-bold text-green-400 uppercase block mb-1">ECO Slider (Range: 0.75 – 2.00 W/kg)</span>
-                        <p class="text-gray-400 leading-relaxed">Sets the baseline background support. Dropping it below $1.00\text{ W/kg}$ creates a highly natural "acoustic" feel that demands maximum muscle force but preserves tremendous battery life on flat transit paths.</p>
+                        <p class="text-gray-400 leading-relaxed">Sets the baseline background support. Dropping it below $1.00\text{ W/kg}$ creates a highly natural feel that demands active muscle force but preserves tremendous battery life on flat transit paths.</p>
                     </div>
                     <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 space-y-1">
                         <span class="font-bold text-blue-400 uppercase block mb-1">AUTO Slider (Range: 1.50 – 4.50 W/kg)</span>
@@ -272,7 +272,7 @@
                     </div>
                     <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 space-y-1">
                         <span class="font-bold text-red-400 uppercase block mb-1">TURBO Slider (Range: 3.50 – 10.00 W/kg)</span>
-                        <p class="text-gray-400 leading-relaxed">Manages the emergency acceleration ceiling. <strong class="text-red-500">Critical Guardrail:</strong> Sliding this setting (or any other mode) to <span class="text-white bg-red-900 px-1 rounded font-bold">&ge; 6.00 W/kg</span> activates the <strong>High Energy Drain Zone</strong>, triggering visual warnings because power draws scale exponentially.</p>
+                        <p class="text-gray-400 leading-relaxed">Manages the emergency acceleration ceiling. Sliding this setting to &ge; 6.00 W/kg activates the High Energy Drain Zone, triggering visual warnings because power draws scale exponentially.</p>
                     </div>
                 </div>
             </div>
@@ -298,27 +298,6 @@
                     <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 space-y-1">
                         <h4 class="font-bold text-white uppercase tracking-wide flex justify-between"><span>Assist Level (Effort Multiplier)</span> <span class="text-purple-500 text-xxs">Bio-Mechanical Match</span></h4>
                         <p class="text-gray-400 leading-relaxed">Dictates how many times the system multiplies your manual input force. Stronger riders require lower configurations, while high-fatigue terrain relies on higher engagement levels.</p>
-                    </div>
-                </div>
-            </div>
-
-            <div class="bg-gray-900 p-6 rounded-2xl border border-gray-800 shadow-xl space-y-4">
-                <div class="border-b border-gray-800 pb-3">
-                    <h2 class="text-base font-black text-green-400 uppercase tracking-wider">🚴 Empirical Field Scenarios</h2>
-                    <p class="text-xs text-gray-500">Real-world configurations tested on complex vertical elevations</p>
-                </div>
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
-                    <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 space-y-2">
-                        <div class="flex justify-between items-center"><span class="font-bold text-emerald-400 uppercase tracking-wider">Pure Leg Marathon</span> <span class="bg-emerald-950 text-emerald-300 px-1.5 py-0.5 rounded text-xxs">ECO</span></div>
-                        <p class="text-gray-400 leading-relaxed">Set ECO to 0.85 W/kg with torque clamped at 18 Nm. Forces active human engagement on flat segments, letting the system cross over 160km of range limits safely.</p>
-                    </div>
-                    <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 space-y-2">
-                        <div class="flex justify-between items-center"><span class="font-bold text-sky-400 uppercase tracking-wider">Wet Technical Grip</span> <span class="bg-sky-950 text-sky-300 px-1.5 py-0.5 rounded text-xxs">TRAIL</span></div>
-                        <p class="text-gray-400 leading-relaxed">Map TRAIL to 5.00 W/kg but cap torque output at 55 Nm. Prevents rear wheel spinouts on wet root structures or loose rocks while ensuring traction progression.</p>
-                    </div>
-                    <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 space-y-2">
-                        <div class="flex justify-between items-center"><span class="font-bold text-red-400 uppercase tracking-wider">Vertical Alpine Wall</span> <span class="bg-red-950 text-red-300 px-1.5 py-0.5 rounded text-xxs">TURBO</span></div>
-                        <p class="text-gray-400 leading-relaxed">Map TURBO to 8.50 W/kg with torque unlocked at 120 Nm. Designed exclusively to defeat brief, nearly impossible vertical pitches where immediate extreme support is mandatory.</p>
                     </div>
                 </div>
             </div>
@@ -595,6 +574,7 @@
 
         window.addEventListener('DOMContentLoaded', updateSetup);
 
+        // Responsive-safe Tab Controller syncing DOM states dynamically
         function switchTab(tabName) {
             const calcTab = document.getElementById('tabCalc');
             const missionTab = document.getElementById('tabMission');
@@ -607,9 +587,9 @@
             missionTab.classList.replace('block', 'hidden');
             guideTab.classList.replace('block', 'hidden');
             
-            calcBtn.className = "bg-gray-800 text-gray-400 hover:text-white font-bold text-xs uppercase tracking-wider py-2.5 px-5 rounded-xl transition focus:outline-none";
-            missionBtn.className = "bg-gray-800 text-gray-400 hover:text-white font-bold text-xs uppercase tracking-wider py-2.5 px-5 rounded-xl transition focus:outline-none";
-            guideBtn.className = "bg-gray-800 text-gray-400 hover:text-white font-bold text-xs uppercase tracking-wider py-2.5 px-5 rounded-xl transition focus:outline-none";
+            calcBtn.className = "w-full sm:w-auto bg-gray-800 text-gray-400 hover:text-white font-bold text-xs uppercase tracking-wider py-2.5 px-5 rounded-xl transition focus:outline-none text-center";
+            missionBtn.className = "w-full sm:w-auto bg-gray-800 text-gray-400 hover:text-white font-bold text-xs uppercase tracking-wider py-2.5 px-5 rounded-xl transition focus:outline-none text-center";
+            guideBtn.className = "w-full sm:w-auto bg-gray-800 text-gray-400 hover:text-white font-bold text-xs uppercase tracking-wider py-2.5 px-5 rounded-xl transition focus:outline-none text-center";
 
             if(tabName === 'calc') {
                 calcTab.classList.replace('hidden', 'block');
