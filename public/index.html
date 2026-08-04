@@ -1,260 +1,607 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DJI Avinox Custom Setup Panel</title>
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
-    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
 </head>
-
-<body class="bg-gray-900 text-gray-100 min-h-screen font-sans overflow-y-scroll">
-    <div class="container mx-auto px-4 py-6 max-w-6xl">
-
-        <div
-            class="border-b border-gray-700 pb-3 mb-6 flex flex-col md:flex-row justify-between items-start md:items-end">
+<body class="bg-gray-950 text-gray-100 min-h-screen font-sans overflow-y-scroll">
+    <div class="container mx-auto px-4 py-8 max-w-7xl">
+        
+        <div class="border-b border-gray-800 pb-5 mb-8 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
             <div>
-                <h1 class="text-2xl font-black text-white uppercase tracking-wider">Avinox Ecosystem Panel</h1>
-                <p class="text-xs text-gray-400 italic">Advanced Bio-Mechanical Tuning & Reference Base</p>
+                <h1 class="text-3xl font-black text-white uppercase tracking-wider bg-clip-text text-transparent bg-gradient-to-r from-white to-gray-400">Avinox Ecosystem Panel</h1>
+                <p class="text-sm text-blue-400 font-medium mt-1">Calibrate the bio-mechanical parameters of your DJI Avinox engine and optimize battery range.</p>
             </div>
-            <div class="flex space-x-2 mt-4 md:mt-0">
-                <button id="tabCalcBtn" onclick="switchTab('calc')"
-                    class="bg-blue-600 text-white font-bold text-xs uppercase tracking-wider py-2 px-4 rounded transition focus:outline-none">
-                    ⚙️ Setup Calculator
+            <div class="grid grid-cols-1 sm:flex sm:flex-row gap-2 w-full lg:w-auto">
+                <button id="tabCalcBtn" onclick="switchTab('calc')" class="bg-blue-600 text-white font-bold text-xs uppercase tracking-wider py-2.5 px-5 rounded-xl shadow-lg transition focus:outline-none text-center">
+                    ⚙️ 1. Engine Tuner
                 </button>
-                <button id="tabGuideBtn" onclick="switchTab('guide')"
-                    class="bg-gray-800 text-gray-400 hover:text-white font-bold text-xs uppercase tracking-wider py-2 px-4 rounded transition focus:outline-none">
-                    📖 Hemmersbach Guide Extracts
+                <button id="tabMissionBtn" onclick="switchTab('mission')" class="bg-gray-800 text-gray-400 hover:text-white font-bold text-xs uppercase tracking-wider py-2.5 px-5 rounded-xl transition focus:outline-none text-center">
+                    🚴 2. Route Simulator
+                </button>
+                <button id="tabGuideBtn" onclick="switchTab('guide')" class="bg-gray-800 text-gray-400 hover:text-white font-bold text-xs uppercase tracking-wider py-2.5 px-5 rounded-xl transition focus:outline-none text-center">
+                    📖 3. Knowledge Base
                 </button>
             </div>
         </div>
 
         <div id="tabCalc" class="block">
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div class="bg-gray-800 p-5 rounded-lg border border-gray-700 h-fit">
-                    <h2 class="text-lg font-bold text-blue-400 mb-3 uppercase tracking-wide">Rider Variables</h2>
-                    <form id="calcForm" class="space-y-3 text-sm">
-                        <div>
-                            <label class="block text-xs font-semibold text-gray-400 mb-1">Rider Weight (kg, geared
-                                up)</label>
-                            <input type="number" id="riderWeight" value="82" required
-                                class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white focus:outline-none focus:border-blue-500">
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+                
+                <div class="lg:col-span-4 space-y-6">
+                    
+                    <div class="bg-gray-900 p-5 rounded-2xl border border-gray-800 shadow-xl space-y-4">
+                        <div class="border-b border-gray-800 pb-2">
+                            <h2 class="text-xs font-black text-gray-400 uppercase tracking-widest">Step 1: Rider Variables</h2>
                         </div>
-                        <div>
-                            <label class="block text-xs font-semibold text-gray-400 mb-1">Bike Total Weight (kg)</label>
-                            <input type="number" id="bikeWeight" value="23" required
-                                class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white focus:outline-none focus:border-blue-500">
+                        <form id="calcForm" class="space-y-3.5 text-sm">
+                            <div>
+                                <label class="block text-xs font-semibold text-gray-400 mb-1">Battery Pack Capacity</label>
+                                <select id="batteryWh" class="w-full bg-gray-800 border border-gray-700 rounded-xl p-2.5 text-white font-medium focus:outline-none focus:border-blue-500 transition">
+                                    <option value="600">600 Wh (Compact Light)</option>
+                                    <option value="700">700 Wh (Standard Integrated)</option>
+                                    <option value="800" selected>800 Wh (Extended Range Pack)</option>
+                                </select>
+                            </div>
+                            <div class="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label class="block text-xs font-semibold text-gray-400 mb-1">Rider Weight (kg)</label>
+                                    <input type="number" id="riderWeight" value="82" required class="w-full bg-gray-800 border border-gray-700 rounded-xl p-2.5 text-white focus:outline-none focus:border-blue-500 transition">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-semibold text-gray-400 mb-1">Bike Weight (kg)</label>
+                                    <input type="number" id="bikeWeight" value="23" required class="w-full bg-gray-800 border border-gray-700 rounded-xl p-2.5 text-white focus:outline-none focus:border-blue-500 transition">
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label class="block text-xs font-semibold text-gray-400 mb-1">Cadence (RPM)</label>
+                                    <input type="number" id="cadence" value="75" required class="w-full bg-gray-800 border border-gray-700 rounded-xl p-2.5 text-white focus:outline-none focus:border-blue-500 transition">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-semibold text-gray-400 mb-1">Rider Power (W)</label>
+                                    <input type="number" id="riderPower" value="200" required class="w-full bg-gray-800 border border-gray-700 rounded-xl p-2.5 text-white focus:outline-none focus:border-blue-500 transition">
+                                </div>
+                            </div>
+                            <button type="submit" class="hidden">Submit</button>
+                        </form>
+                    </div>
+
+                    <div class="bg-gray-900 p-5 rounded-2xl border border-gray-800 shadow-xl space-y-4">
+                        <div class="border-b border-gray-800 pb-2">
+                            <h2 class="text-xs font-black text-gray-400 uppercase tracking-widest">Step 2: Riding Style</h2>
                         </div>
-                        <div>
-                            <label class="block text-xs font-semibold text-gray-400 mb-1">Target Cadence (RPM)</label>
-                            <input type="number" id="cadence" value="75" required
-                                class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white focus:outline-none focus:border-blue-500">
+                        
+                        <div class="space-y-2.5">
+                            <button type="button" onclick="loadPreset(1.36, 2.73, 5.45, 7.72)" class="w-full bg-gray-800 hover:bg-gray-750 text-left p-3 rounded-xl border border-gray-700 hover:border-blue-500 transition group">
+                                <span class="font-bold text-xs text-blue-400 uppercase tracking-wider group-hover:text-white transition block">🌟 Balanced Profile</span>
+                                <span class="text-xxs text-gray-400 mt-0.5 block">The perfect balance between active muscle engagement and motor efficiency.</span>
+                            </button>
+                            <button type="button" onclick="loadPreset(0.85, 1.75, 3.00, 4.25)" class="w-full bg-gray-800 hover:bg-gray-750 text-left p-3 rounded-xl border border-gray-700 hover:border-green-500 transition group">
+                                <span class="font-bold text-xs text-green-400 uppercase tracking-wider group-hover:text-white transition block">🍃 Marathon Preset (Max Savings)</span>
+                                <span class="text-xxs text-gray-400 mt-0.5 block">Maximum battery preservation designed for giant alpine loops over 3000m.</span>
+                            </button>
+                            <button type="button" onclick="loadPreset(1.75, 3.75, 6.75, 8.75)" class="w-full bg-gray-800 hover:bg-gray-750 text-left p-3 rounded-xl border border-gray-700 hover:border-red-500 transition group">
+                                <span class="font-bold text-xs text-red-400 uppercase tracking-wider group-hover:text-white transition block">🚀 Full Power Enduro</span>
+                                <span class="text-xxs text-gray-400 mt-0.5 block">Unleashes aggressive, responsive torque matching steep technical climbs.</span>
+                            </button>
                         </div>
-                        <div>
-                            <label class="block text-xs font-semibold text-gray-400 mb-1">Human Power Output
-                                (Watts)</label>
-                            <input type="number" id="riderPower" value="200" required
-                                class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white focus:outline-none focus:border-blue-500">
+
+                        <div class="pt-2">
+                            <button type="button" onclick="toggleAdvancedSliders()" class="text-xxs font-bold text-yellow-500 hover:text-yellow-400 transition uppercase tracking-wider flex items-center space-x-1 focus:outline-none">
+                                <span id="advancedToggleIcon">🛠️</span> <span id="advancedToggleText">Show Advanced W/kg Sliders</span>
+                            </button>
+                            
+                            <div id="advancedSlidersPanel" class="hidden mt-4 p-4 bg-gray-950 rounded-xl border border-gray-800 space-y-4">
+                                <div class="space-y-1">
+                                    <label class="text-xxs font-bold uppercase text-gray-400">ECO Target</label>
+                                    <div class="flex items-center space-x-3">
+                                        <input type="number" id="ecoWkg" value="1.36" step="0.01" min="0.75" max="2.00" class="w-14 bg-gray-800 border border-gray-700 rounded-lg p-1 text-center text-xs text-white focus:outline-none">
+                                        <input type="range" id="ecoWkgSlider" value="1.36" step="0.01" min="0.75" max="2.00" class="w-full accent-blue-500">
+                                    </div>
+                                </div>
+                                <div class="space-y-1">
+                                    <label class="text-xxs font-bold uppercase text-gray-400">AUTO Target</label>
+                                    <div class="flex items-center space-x-3">
+                                        <input type="number" id="autoWkg" value="2.73" step="0.01" min="1.50" max="4.50" class="w-14 bg-gray-800 border border-gray-700 rounded-lg p-1 text-center text-xs text-white focus:outline-none">
+                                        <input type="range" id="autoWkgSlider" value="2.73" step="0.01" min="1.50" max="4.50" class="w-full accent-blue-500">
+                                    </div>
+                                </div>
+                                <div class="space-y-1">
+                                    <label class="text-xxs font-bold uppercase text-gray-400">TRAIL Target</label>
+                                    <div class="flex items-center space-x-3">
+                                        <input type="number" id="trailWkg" value="5.45" step="0.01" min="2.50" max="7.50" class="w-14 bg-gray-800 border border-gray-700 rounded-lg p-1 text-center text-xs text-white focus:outline-none">
+                                        <input type="range" id="trailWkgSlider" value="5.45" step="0.01" min="2.50" max="7.50" class="w-full accent-blue-500">
+                                    </div>
+                                </div>
+                                <div class="space-y-1">
+                                    <label class="text-xxs font-bold uppercase text-gray-400">TURBO Target</label>
+                                    <div class="flex items-center space-x-3">
+                                        <input type="number" id="turboWkg" value="7.72" step="0.01" min="3.50" max="10.00" class="w-14 bg-gray-800 border border-gray-700 rounded-lg p-1 text-center text-xs text-white focus:outline-none">
+                                        <input type="range" id="turboWkgSlider" value="7.72" step="0.01" min="3.50" max="10.00" class="w-full accent-blue-500">
+                                    </div>
+                                </div>
+                            </div>
                         </div>
-                        <button type="submit"
-                            class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded transition uppercase tracking-wider mt-1 text-xs">Generate
-                            Setup</button>
-                    </form>
+
+                        <button onclick="updateSetup()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-3 px-4 rounded-xl transition uppercase tracking-wider text-xs shadow-lg mt-2">
+                            Generate Custom Setup
+                        </button>
+                    </div>
                 </div>
 
-                <div class="lg:col-span-2 bg-gray-800 p-5 rounded-lg border border-gray-700">
-                    <div class="flex justify-between items-center mb-4">
-                        <h2 class="text-lg font-bold text-blue-400 uppercase tracking-wide">Optimized Assist Map</h2>
-                        <span id="sysWeight" class="bg-blue-900 text-blue-200 px-3 py-1 rounded text-xs font-bold">Total
-                            Weight: -- kg</span>
+                <div class="lg:col-span-8 space-y-6">
+                    
+                    <div class="bg-gray-900 p-6 rounded-2xl border border-gray-800 shadow-xl space-y-4">
+                        <div class="border-b border-gray-800 pb-3 flex justify-between items-center">
+                            <div>
+                                <h2 class="text-xs font-black text-gray-400 uppercase tracking-widest">Avinox App Custom Setup</h2>
+                                <p class="text-xxs text-gray-500">Copy these exact values into your DJI Avinox mobile application</p>
+                            </div>
+                            <span id="sysWeight" class="bg-blue-950 text-blue-300 border border-blue-900 px-3 py-1 rounded-lg text-xs font-bold">Total Weight: -- kg</span>
+                        </div>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4" id="resultsGrid"></div>
                     </div>
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4" id="resultsGrid"></div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 bg-gray-900 p-6 rounded-2xl border border-gray-800 shadow-xl">
+                        <div class="h-64 flex flex-col">
+                            <h3 class="text-xxs font-black uppercase tracking-widest text-gray-400 mb-3 text-center" id="rangeChartTitle">Estimated Max Range (km)</h3>
+                            <div class="flex-1 relative w-full px-2">
+                                <canvas id="rangeChart"></canvas>
+                            </div>
+                        </div>
+                        <div class="h-64 flex flex-col">
+                            <h3 class="text-xxs font-black uppercase tracking-widest text-gray-400 mb-3 text-center">Continuous Motor Runtime (Hours)</h3>
+                            <div class="flex-1 relative w-full px-2">
+                                <canvas id="runtimeChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+
                 </div>
             </div>
         </div>
 
-        <div id="tabGuide" class="hidden space-y-6">
-            <div class="bg-gray-800 p-5 rounded-lg border border-gray-700">
-                <h2 class="text-lg font-bold text-orange-400 mb-3 uppercase tracking-wide">1. The Fundamental Formula of
-                    Avinox Systems</h2>
-                <div
-                    class="bg-gray-900 p-4 rounded border border-gray-700 font-mono text-sm text-center text-yellow-400 my-2">
-                    Motor Power (Watts) = (Max Torque [Nm] &times; Cadence [RPM]) / 9.55
+        <div id="tabMission" class="hidden">
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+                <div class="lg:col-span-4 bg-gray-900 p-5 rounded-2xl border border-gray-800 shadow-xl space-y-4">
+                    <div class="border-b border-gray-800 pb-2">
+                        <h2 class="text-xs font-black text-gray-400 uppercase tracking-widest">Track Geography</h2>
+                    </div>
+                    <form id="missionForm" class="space-y-4 text-sm">
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-400 mb-1">Target Distance (km)</label>
+                            <input type="number" id="targetKm" value="70" required class="w-full bg-gray-800 border border-gray-700 rounded-xl p-2.5 text-white focus:outline-none focus:border-green-500 transition">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-400 mb-1">Positive Elevation Gain (meters)</label>
+                            <input type="number" id="targetH_m" value="1500" required class="w-full bg-gray-800 border border-gray-700 rounded-xl p-2.5 text-white focus:outline-none focus:border-green-500 transition">
+                        </div>
+                        <button type="submit" class="w-full bg-green-600 hover:bg-green-700 text-white font-black py-3 px-4 rounded-xl transition uppercase tracking-wider text-xs shadow-lg">
+                            Analyze Strategy
+                        </button>
+                    </form>
                 </div>
-                <p class="text-sm text-gray-300 mt-2">
-                    The DJI engine does not deliver a static 1000 W output. Power output relies structurally on your
-                    pedaling frequency:
+
+                <div class="lg:col-span-8 bg-gray-900 p-6 rounded-2xl border border-gray-800 shadow-xl space-y-5">
+                    <div class="flex justify-between items-center border-b border-gray-800 pb-2">
+                        <div>
+                            <h2 class="text-xs font-black text-gray-400 uppercase tracking-widest">Energy Feasibility Status</h2>
+                        </div>
+                        <span id="energyVerdict" class="px-2.5 py-1 rounded-md text-xxs font-black uppercase tracking-wider border">--</span>
+                    </div>
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-12 gap-6 bg-gray-950 p-5 rounded-xl border border-gray-800 items-center">
+                        <div class="md:col-span-7 text-xs text-gray-300 font-mono space-y-2.5" id="energyBreakdown">
+                            Enter route parameters and execute the analysis to compute the electrical projection.
+                        </div>
+                        <div class="md:col-span-5 flex flex-col items-center">
+                            <div class="h-36 w-36 relative">
+                                <canvas id="missionPieChart"></canvas>
+                            </div>
+                            <div class="flex space-x-3 mt-4 text-xxs font-bold text-gray-400">
+                                <span class="flex items-center"><span class="w-2 h-2 rounded-full bg-green-500 mr-1"></span> ECO</span>
+                                <span class="flex items-center"><span class="w-2 h-2 rounded-full bg-blue-500 mr-1"></span> AUTO</span>
+                                <span class="flex items-center"><span class="w-2 h-2 rounded-full bg-yellow-500 mr-1"></span> TRAIL</span>
+                                <span class="flex items-center"><span class="w-2 h-2 rounded-full bg-red-500 mr-1"></span> TURBO</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <h3 class="text-xs font-black text-gray-400 uppercase tracking-widest pt-2">Recommended Safety Boundaries</h3>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4" id="missionGrid"></div>
+                </div>
+            </div>
+        </div>
+
+        <div id="tabGuide" class="hidden space-y-8">
+            
+            <div class="bg-gray-900 p-6 rounded-2xl border border-gray-800 shadow-xl space-y-4">
+                <div class="border-b border-gray-800 pb-3">
+                    <h2 class="text-base font-black text-blue-400 uppercase tracking-wider">📋 Quick Start Application Guide</h2>
+                    <p class="text-xs text-gray-500">Follow these basic checkpoints to secure your ecosystem profile metrics</p>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
+                    <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 space-y-2">
+                        <span class="text-blue-500 font-black text-sm">01.</span>
+                        <h3 class="font-bold text-white uppercase tracking-wider">Input Data</h3>
+                        <p class="text-gray-400 leading-relaxed">Select your structural battery capacity size and enter your total system weight including packed equipment.</p>
+                    </div>
+                    <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 space-y-2">
+                        <span class="text-green-500 font-black text-sm">02.</span>
+                        <h3 class="font-bold text-white uppercase tracking-wider">Choose Style</h3>
+                        <p class="text-gray-400 leading-relaxed">Click a pre-calculated shortcut card (Balanced, Marathon, Power) or unveil the advanced sliders to fine-tune inputs.</p>
+                    </div>
+                    <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 space-y-2">
+                        <span class="text-yellow-500 font-black text-sm">03.</span>
+                        <h3 class="font-bold text-white uppercase tracking-wider">Transfer Metrics</h3>
+                        <p class="text-gray-400 leading-relaxed">Open the official DJI Avinox app on your smartphone and mirror the mapped values of Watts, Nm and bound ranges.</p>
+                    </div>
+                    <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 space-y-2">
+                        <span class="text-red-500 font-black text-sm">04.</span>
+                        <h3 class="font-bold text-white uppercase tracking-wider">Simulate Loop</h3>
+                        <p class="text-gray-400 leading-relaxed">Flip the console to the "Route Simulator" panel, insert terrain dimensions and run safety validation margins.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-gray-900 p-6 rounded-2xl border border-gray-800 shadow-xl space-y-4">
+                <div class="border-b border-gray-800 pb-3">
+                    <h2 class="text-base font-black text-purple-400 uppercase tracking-wider">🎛️ Mastering the Advanced W/kg Sliders</h2>
+                    <p class="text-xs text-gray-500">How to use the manual sliders to mathematically manipulate motor output limits</p>
+                </div>
+                <p class="text-sm text-gray-300 leading-relaxed">
+                    By expanding the drawer on the tuner screen, you gain granular control over the electrical curves. Each slider represents the desired power target in <strong>Watts per Kilogram (W/kg)</strong> of total system weight. The application processes these thresholds to define specific app limits:
                 </p>
-                <ul class="list-disc list-inside text-xs text-gray-400 mt-2 space-y-1 pl-2">
-                    <li>Lazy Pedaling (<strong>52 RPM</strong> inside 12th gear): The engine physical ceiling is capped
-                        at <strong>572 Watts</strong>.</li>
-                    <li>Radsportler Cadence (<strong>90 RPM</strong> inside 9th gear): Unlocks the system potential up
-                        to <strong>990 Watts</strong>.</li>
-                </ul>
-            </div>
-
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div class="bg-gray-800 p-5 rounded-lg border border-gray-700">
-                    <h2 class="text-lg font-bold text-orange-400 mb-3 uppercase tracking-wide">2. Real Assist Ratio
-                        Mappings</h2>
-                    <p class="text-xs text-gray-400 mb-3">Empirical values extracted by test benches on steep asphalt
-                        tracks (safety barrier below 25km/h limit):</p>
-                    <div class="overflow-x-auto">
-                        <table class="w-full text-left text-xs border border-gray-700">
-                            <thead class="bg-gray-900 text-gray-300 uppercase tracking-wider">
-                                <tr>
-                                    <th class="p-2 border border-gray-700">Assist Level</th>
-                                    <th class="p-2 border border-gray-700">Real Motor Support %</th>
-                                    <th class="p-2 border border-gray-700">Best Strategy Target</th>
-                                </tr>
-                            </thead>
-                            <tbody class="divide-y divide-gray-700 text-gray-300">
-                                <tr>
-                                    <td class="p-2 border border-gray-700 font-bold">Level 1</td>
-                                    <td class="p-2 border border-gray-700">30%</td>
-                                    <td class="p-2 border border-gray-700 text-gray-500">Minimum interaction</td>
-                                </tr>
-                                <tr class="bg-gray-700">
-                                    <td class="p-2 border border-gray-700 font-bold text-green-400">Level 3</td>
-                                    <td class="p-2 border border-gray-700 text-green-400">80%</td>
-                                    <td class="p-2 border border-gray-700">Optimal ECO Efficiency Base</td>
-                                </tr>
-                                <tr>
-                                    <td class="p-2 border border-gray-700 font-bold">Level 4</td>
-                                    <td class="p-2 border border-gray-700">100%</td>
-                                    <td class="p-2 border border-gray-700 text-gray-500">Natural matching 1:1</td>
-                                </tr>
-                                <tr class="bg-gray-700">
-                                    <td class="p-2 border border-gray-700 font-bold text-blue-400">Level 6</td>
-                                    <td class="p-2 border border-gray-700 text-blue-400">150%</td>
-                                    <td class="p-2 border border-gray-700">AUTO Floor standard threshold</td>
-                                </tr>
-                                <tr>
-                                    <td class="p-2 border border-gray-700 font-bold text-yellow-500">Level 9</td>
-                                    <td class="p-2 border border-gray-700 text-yellow-500">300%</td>
-                                    <td class="p-2 border border-gray-700">TRAIL Technical Elevation Peak</td>
-                                </tr>
-                                <tr class="bg-gray-700">
-                                    <td class="p-2 border border-gray-700 font-bold text-red-400">Level 11</td>
-                                    <td class="p-2 border border-gray-700 text-red-400">450%</td>
-                                    <td class="p-2 border border-gray-700">TURBO Acceleration Ceiling</td>
-                                </tr>
-                                <tr>
-                                    <td class="p-2 border border-gray-700 font-bold">Level 13</td>
-                                    <td class="p-2 border border-gray-700">675%</td>
-                                    <td class="p-2 border border-gray-700 text-gray-500">Extreme high energy drain</td>
-                                </tr>
-                            </tbody>
-                        </table>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                    <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 space-y-1">
+                        <span class="font-bold text-green-400 uppercase block mb-1">ECO Slider (Range: 0.75 – 2.00 W/kg)</span>
+                        <p class="text-gray-400 leading-relaxed">Sets the baseline background support. Dropping it below 1.00 W/kg creates a highly natural feel that demands active muscle force but preserves tremendous battery life on flat transit paths.</p>
+                    </div>
+                    <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 space-y-1">
+                        <span class="font-bold text-blue-400 uppercase block mb-1">AUTO Slider (Range: 1.50 – 4.50 W/kg)</span>
+                        <p class="text-gray-400 leading-relaxed">Adjusts the top ceiling for the system's dynamic mode. A higher value causes the Avinox smart algorithm to scale up power output much faster on changing slopes, compensating for sudden steep sections.</p>
+                    </div>
+                    <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 space-y-1">
+                        <span class="font-bold text-yellow-500 uppercase block mb-1">TRAIL Slider (Range: 2.50 – 7.50 W/kg)</span>
+                        <p class="text-gray-400 leading-relaxed">Controls sustained technical singletrack delivery. Keeping this slider bounded between 5.00 and 5.50 W/kg delivers exceptional technical climbing punch without spinning out or losing tire traction on loose gravel tracks.</p>
+                    </div>
+                    <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 space-y-1">
+                        <span class="font-bold text-red-400 uppercase block mb-1">TURBO Slider (Range: 3.50 – 10.00 W/kg)</span>
+                        <p class="text-gray-400 leading-relaxed">Manages the emergency acceleration ceiling. Sliding this setting to &ge; 6.00 W/kg activates the High Energy Drain Zone, triggering visual warnings because power draws scale exponentially.</p>
                     </div>
                 </div>
+            </div>
 
-                <div class="bg-gray-800 p-5 rounded-lg border border-gray-700 space-y-3">
-                    <h2 class="text-lg font-bold text-orange-400 uppercase tracking-wide">3. Advanced Micro Adjust Logic
-                    </h2>
-                    <div class="bg-gray-900 p-3 rounded border-l-4 border-yellow-500 text-xs text-gray-300">
-                        <strong>The Hidden Software Trap:</strong> Micro Adjust behaves differently based on the chosen
-                        mode type:
+            <div class="bg-gray-900 p-6 rounded-2xl border border-gray-800 shadow-xl space-y-4">
+                <div class="border-b border-gray-800 pb-3">
+                    <h2 class="text-base font-black text-yellow-500 uppercase tracking-wider">🛠️ Parameters Dictionary & Logic Boundaries</h2>
+                    <p class="text-xs text-gray-500">Understanding the core thresholds of the DJI Avinox software</p>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                    <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 space-y-1">
+                        <h4 class="font-bold text-white uppercase tracking-wide flex justify-between"><span>Multiplier (W/kg)</span> <span class="text-yellow-500 text-xxs">Primary Input Variable</span></h4>
+                        <p class="text-gray-400 leading-relaxed">Determines the motor power limits adjusted to the system total mass. Shifting this threshold automatically recalibrates all subsequent watt parameters across every active mode profile.</p>
                     </div>
-                    <ul class="list-disc list-inside text-xs text-gray-400 space-y-2 pl-1">
-                        <li><strong>In ECO and TURBO (Static Modes):</strong> Adjusting shifts the single active Assist
-                            Level up or down instantly.</li>
-                        <li><strong>In AUTO and TRAIL (Dynamic Range Modes):</strong> The controller changes
-                            <strong>ONLY the upper bound value</strong>. If your Auto mode is set to Lvl 4-6, raising it
-                            moves the ceiling to 7, 8, or 9 while the floor stays at 4.</li>
-                        <li><strong class="text-red-400">Critical warning:</strong> If you push the upper value below
-                            the floor limit during an active ride, you will permanently degrade the minimum baseline.
-                            This cannot be fixed via Micro Adjust on the fly and requires an app reset.</li>
-                    </ul>
+                    <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 space-y-1">
+                        <h4 class="font-bold text-white uppercase tracking-wide flex justify-between"><span>Power Limit (Watts)</span> <span class="text-green-500 text-xxs">Battery Control</span></h4>
+                        <p class="text-gray-400 leading-relaxed">Specifies the continuous electrical power maximum of the system. Restricting this limit (e.g., 150W in ECO) acts as the primary protection layer against premature battery drainage.</p>
+                    </div>
+                    <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 space-y-1">
+                        <h4 class="font-bold text-white uppercase tracking-wide flex justify-between"><span>Max Torque (Nm)</span> <span class="text-blue-500 text-xxs">Response Dynamics</span></h4>
+                        <p class="text-gray-400 leading-relaxed">Defines the peak turning force of the motor block. Lower settings offer smooth traction, while values exceeding 80 Nm produce a quick, dirtbike-like engagement on steep trails.</p>
+                    </div>
+                    <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 space-y-1">
+                        <h4 class="font-bold text-white uppercase tracking-wide flex justify-between"><span>Assist Level (Multiplier Factor)</span> <span class="text-purple-500 text-xxs">Bio-Mechanical Match</span></h4>
+                        <p class="text-gray-400 leading-relaxed">Determines how many times the motor multiplies your manual leg effort. Highly useful for compensating rider fatigue without changing the absolute power boundaries.</p>
+                    </div>
                 </div>
             </div>
+
+            <div class="bg-gray-900 p-6 rounded-2xl border border-gray-800 shadow-xl space-y-4">
+                <div class="border-b border-gray-800 pb-3">
+                    <h2 class="text-base font-black text-orange-400 uppercase tracking-wide">The Fundamental Formula of Avinox Systems</h2>
+                    <p class="text-xs text-gray-500">The engineering mechanics balancing power delivery</p>
+                </div>
+                <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 font-mono text-xs text-center text-yellow-400 max-w-xl mx-auto my-2 shadow-inner">
+                    Motor Power (W) = (Max Torque [Nm] &times; Cadence [RPM]) / 9.55
+                </div>
+                <p class="text-sm text-gray-300 leading-relaxed">
+                    The DJI engine output relies structurally on your pedaling frequency:
+                </p>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+                    <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 text-xs text-gray-400 leading-relaxed">
+                        <span class="block font-bold text-red-400 mb-1.5 uppercase tracking-wide">⚠️ Lazy Cadence (52 RPM)</span>
+                        If you grind a tall gear, the physical output ceiling is electronically clamped at roughly 572 Watts, wasting battery through thermal loss.
+                    </div>
+                    <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 text-xs text-gray-400 leading-relaxed">
+                        <span class="block font-bold text-green-400 mb-1.5 uppercase tracking-wide">✅ Sport Cadence (90 RPM)</span>
+                        Spinning an agile gear fully unlocks the architecture's potential, unleashing up to 990 Watts of fluid, uninterrupted electrical support.
+                    </div>
+                </div>
+            </div>
+
         </div>
 
     </div>
 
     <script>
-        // 1. Isola la logica di calcolo in una funzione standalone
+        let rangeChartInstance = null;
+        let runtimeChartInstance = null;
+        let missionPieChartInstance = null;
+
+        function toggleAdvancedSliders() {
+            const panel = document.getElementById('advancedSlidersPanel');
+            const txt = document.getElementById('advancedToggleText');
+            const icon = document.getElementById('advancedToggleIcon');
+            
+            if(panel.classList.contains('hidden')) {
+                panel.classList.remove('hidden');
+                txt.innerText = "Hide Advanced Sliders";
+                icon.innerText = "✖️";
+            } else {
+                panel.classList.add('hidden');
+                txt.innerText = "Show Advanced W/kg Sliders";
+                icon.innerText = "🛠️";
+            }
+        }
+
+        function initCharts(rangeData, runtimeData) {
+            const ctxRange = document.getElementById('rangeChart').getContext('2d');
+            const ctxRuntime = document.getElementById('runtimeChart').getContext('2d');
+
+            const chartOptions = {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    y: { grid: { color: '#1F2937' }, ticks: { color: '#6B7280', font: { size: 10 } } },
+                    x: { ticks: { color: '#9CA3AF', font: { size: 10, weight: 'bold' } } }
+                }
+            };
+
+            if (rangeChartInstance) rangeChartInstance.destroy();
+            if (runtimeChartInstance) runtimeChartInstance.destroy();
+
+            rangeChartInstance = new Chart(ctxRange, {
+                type: 'bar',
+                data: {
+                    labels: ['ECO', 'AUTO', 'TRAIL', 'TURBO'],
+                    datasets: [{
+                        data: rangeData,
+                        backgroundColor: ['#10B981', '#3B82F6', '#F59E0B', '#EF4444'],
+                        borderRadius: 6
+                    }]
+                },
+                options: chartOptions
+            });
+
+            runtimeChartInstance = new Chart(ctxRuntime, {
+                type: 'bar',
+                data: {
+                    labels: ['ECO', 'AUTO', 'TRAIL', 'TURBO'],
+                    datasets: [{
+                        data: runtimeData,
+                        backgroundColor: ['#10B981', '#3B82F6', '#F59E0B', '#EF4444'],
+                        borderRadius: 6
+                    }]
+                },
+                options: chartOptions
+            });
+        }
+
+        function bindSliderAndText(textId, sliderId) {
+            const txt = document.getElementById(textId);
+            const sld = document.getElementById(sliderId);
+            txt.addEventListener('input', () => {
+                let val = parseFloat(txt.value);
+                if (!isNaN(val)) {
+                    if (val < parseFloat(sld.min)) val = parseFloat(sld.min);
+                    if (val > parseFloat(sld.max)) val = parseFloat(sld.max);
+                    sld.value = val;
+                    updateSetup();
+                }
+            });
+            sld.addEventListener('input', () => {
+                txt.value = sld.value;
+                updateSetup();
+            });
+        }
+
+        bindSliderAndText('ecoWkg', 'ecoWkgSlider');
+        bindSliderAndText('autoWkg', 'autoWkgSlider');
+        bindSliderAndText('trailWkg', 'trailWkgSlider');
+        bindSliderAndText('turboWkg', 'turboWkgSlider');
+
+        // Preset mapping loaders
+        function loadPreset(eco, auto, trail, turbo) {
+            document.getElementById('ecoWkg').value = eco;
+            document.getElementById('ecoWkgSlider').value = eco;
+            document.getElementById('autoWkg').value = auto;
+            document.getElementById('autoWkgSlider').value = auto;
+            document.getElementById('trailWkg').value = trail;
+            document.getElementById('trailWkgSlider').value = trail;
+            document.getElementById('turboWkg').value = turbo;
+            document.getElementById('turboWkgSlider').value = turbo;
+            updateSetup();
+        }
+
         async function updateSetup() {
+            const selectedBattery = document.getElementById('batteryWh').value;
+            document.getElementById('rangeChartTitle').innerText = 'Estimated Max Range (km) • Battery ' + selectedBattery + 'Wh';
+
             const data = {
+                batteryWh: selectedBattery,
                 riderWeight: document.getElementById('riderWeight').value,
                 bikeWeight: document.getElementById('bikeWeight').value,
                 cadence: document.getElementById('cadence').value,
-                riderPower: document.getElementById('riderPower').value
+                riderPower: document.getElementById('riderPower').value,
+                ecoWkg: document.getElementById('ecoWkg').value,
+                autoWkg: document.getElementById('autoWkg').value,
+                trailWkg: document.getElementById('trailWkg').value,
+                turboWkg: document.getElementById('turboWkg').value
             };
 
             try {
                 const response = await axios.post('/api/calculate', data);
                 const res = response.data;
-
                 document.getElementById('sysWeight').innerText = 'Total Weight: ' + res.totalWeight + ' kg';
-
+                
                 const modes = [
-                    { name: 'ECO', color: 'green', data: res.eco, desc: 'Maximum range baseline profile.' },
-                    { name: 'AUTO', color: 'blue', data: res.auto, desc: 'Dynamic torque adjustments matching slopes.' },
-                    { name: 'TRAIL', color: 'yellow', data: res.trail, desc: 'Optimized technical climbing engagement map.' },
-                    { name: 'TURBO', color: 'red', data: res.turbo, desc: 'Peak emergency boost. Exponential consumption.' }
+                    { name: 'ECO', color: 'green', val: parseFloat(data.ecoWkg), data: res.eco, desc: 'Maximum range baseline profile.' },
+                    { name: 'AUTO', color: 'blue', val: parseFloat(data.autoWkg), data: res.auto, desc: 'Dynamic torque adjustments matching slopes.' },
+                    { name: 'TRAIL', color: 'yellow', val: parseFloat(data.trailWkg), data: res.trail, desc: 'Optimized technical climbing engagement map.' },
+                    { name: 'TURBO', color: 'red', val: parseFloat(data.turboWkg), data: res.turbo, desc: 'Peak emergency boost map.' }
                 ];
 
                 const grid = document.getElementById('resultsGrid');
                 grid.innerHTML = '';
-
                 modes.forEach(m => {
+                    const isHighDrain = m.val >= 6.0;
+                    const badgeClass = isHighDrain ? 'bg-red-600 text-white animate-pulse' : `bg-gray-950 text-${m.color}-400 border border-gray-800`;
                     grid.innerHTML += `
-                        <div class="bg-gray-700 p-4 rounded border border-gray-600 flex flex-col justify-between text-xs">
+                        <div class="bg-gray-800 p-4 rounded-xl border ${isHighDrain ? 'border-red-500' : 'border-gray-700'} flex flex-col justify-between text-xs shadow-md">
                             <div>
-                                <div class="flex justify-between items-center mb-2">
+                                <div class="flex justify-between items-center mb-2.5">
                                     <span class="font-black text-sm text-white tracking-wide">${m.name}</span>
-                                    <span class="text-xs font-bold text-${m.color}-400 uppercase tracking-wider bg-gray-900 px-2 py-0.5 rounded">${m.data.wkg} W/kg</span>
+                                    <span class="text-xs font-bold uppercase tracking-wider px-2 py-0.5 rounded-md ${badgeClass}">${m.data.wkg} W/kg</span>
                                 </div>
-                                <div class="space-y-1 mb-2">
-                                    <p class="text-gray-300"><span class="text-gray-400 text-xxs block uppercase font-bold">Assist Level</span>${m.data.level}</p>
-                                    <p class="text-gray-300"><span class="text-gray-400 text-xxs block uppercase font-bold">Power Limit</span>${m.data.watts}</p>
-                                    <p class="text-gray-300"><span class="text-gray-400 text-xxs block uppercase font-bold">Torque Bound</span>${m.data.torque}</p>
+                                <div class="space-y-1.5 mb-2">
+                                    <p class="text-gray-300 flex justify-between"><span class="text-gray-400 font-bold">Assist Bound:</span> <span>${m.data.level}</span></p>
+                                    <p class="text-gray-300 flex justify-between"><span class="text-gray-400 font-bold">Power Limit:</span> <span>${m.data.watts}</span></p>
+                                    <p class="text-gray-300 flex justify-between"><span class="text-gray-400 font-bold">Max Torque:</span> <span>${m.data.torque}</span></p>
                                 </div>
                             </div>
-                            <p class="text-xxs text-gray-400 border-t border-gray-600 pt-1.5 italic mt-1">${m.desc}</p>
+                            <p class="text-xxs text-gray-500 border-t border-gray-700 pt-1.5 italic mt-1">${m.desc}</p>
                         </div>
                     `;
                 });
+
+                initCharts(
+                    [res.eco.range, res.auto.range, res.trail.range, res.turbo.range],
+                    [res.eco.runtime, res.auto.runtime, res.trail.runtime, res.turbo.runtime]
+                );
             } catch (err) {
-                alert('Calculation failed. Check entries.');
+                console.error(err);
             }
         }
 
-        // 2. Gestisci l'evento submit del form in modo pulito
-        document.getElementById('calcForm').addEventListener('submit', (e) => {
+        document.getElementById('missionForm').addEventListener('submit', async (e) => {
             e.preventDefault();
-            updateSetup();
+            const selectedBattery = document.getElementById('batteryWh').value;
+            const data = {
+                batteryWh: selectedBattery,
+                riderWeight: document.getElementById('riderWeight').value,
+                bikeWeight: document.getElementById('bikeWeight').value,
+                cadence: document.getElementById('cadence').value,
+                riderPower: document.getElementById('riderPower').value,
+                targetKm: document.getElementById('targetKm').value,
+                targetH_m: document.getElementById('targetH_m').value
+            };
+
+            try {
+                const response = await axios.post('/api/calculate-mission', data);
+                const res = response.data;
+                
+                const badge = document.getElementById('energyVerdict');
+                if (res.feasible) {
+                    badge.innerText = 'FEASIBLE';
+                    badge.className = 'px-2.5 py-1 rounded-md text-xxs font-black uppercase tracking-wider bg-green-955 text-green-300 border-green-900';
+                } else {
+                    badge.innerText = 'CRITICAL MARATHON';
+                    badge.className = 'px-2.5 py-1 rounded-md text-xxs font-black uppercase tracking-wider bg-yellow-955 text-yellow-300 border-yellow-900 animate-pulse';
+                }
+
+                document.getElementById('energyBreakdown').innerHTML = `
+                    &bull; Target Energy Cost: <span class="text-white font-bold">${res.energyRequired} Wh</span><br>
+                    &bull; Battery Size Token: <span class="text-white font-bold">${selectedBattery} Wh</span><br>
+                    &bull; Safety Throttling: <span class="text-white font-bold">${(res.scalingFactor * 100).toFixed(0)}%</span>
+                `;
+
+                const ctxPie = document.getElementById('missionPieChart').getContext('2d');
+                if (missionPieChartInstance) missionPieChartInstance.destroy();
+
+                missionPieChartInstance = new Chart(ctxPie, {
+                    type: 'pie',
+                    data: {
+                        labels: ['ECO', 'AUTO', 'TRAIL', 'TURBO'],
+                        datasets: [{
+                            data: [res.distribution.eco, res.distribution.auto, res.distribution.trail, res.distribution.turbo],
+                            backgroundColor: ['#10B981', '#3B82F6', '#F59E0B', '#EF4444'],
+                            borderWidth: 1,
+                            borderColor: '#111827'
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { display: false } }
+                    }
+                });
+
+                const mGrid = document.getElementById('missionGrid');
+                mGrid.innerHTML = '';
+                
+                const mModes = [
+                    { name: 'MISSION ECO', color: 'green', data: res.eco },
+                    { name: 'MISSION AUTO', color: 'blue', data: res.auto },
+                    { name: 'MISSION TRAIL', color: 'yellow', data: res.trail },
+                    { name: 'MISSION TURBO', color: 'red', data: res.turbo }
+                ];
+
+                mModes.forEach(m => {
+                    mGrid.innerHTML += `
+                        <div class="bg-gray-800 p-4 rounded-xl border border-gray-700 text-xs shadow-md">
+                            <div class="flex justify-between items-center mb-2">
+                                <span class="font-black text-sm text-white tracking-wide">${m.name}</span>
+                                <span class="text-xs font-bold uppercase tracking-wider bg-gray-950 px-2 py-0.5 rounded-md text-${m.color}-400 border border-gray-800">${m.data.wkg} W/kg</span>
+                            </div>
+                            <div class="space-y-1.5">
+                                <p class="text-gray-300 flex justify-between"><span class="text-gray-400 font-bold">Assist Bound:</span> <span>${m.data.level}</span></p>
+                                <p class="text-gray-300 flex justify-between"><span class="text-gray-400 font-bold">Power Limit:</span> <span>${m.data.watts}</span></p>
+                                <p class="text-gray-300 flex justify-between"><span class="text-gray-400 font-bold">Max Torque:</span> <span>${m.data.torque}</span></p>
+                            </div>
+                        </div>
+                    `;
+                });
+            } catch(err) {
+                alert('Mission analysis failed.');
+            }
         });
 
-        // 3. Esegui il calcolo automatico al primo caricamento della pagina
         window.addEventListener('DOMContentLoaded', updateSetup);
 
-        // Controller per lo switch dei Tab
         function switchTab(tabName) {
             const calcTab = document.getElementById('tabCalc');
+            const missionTab = document.getElementById('tabMission');
             const guideTab = document.getElementById('tabGuide');
             const calcBtn = document.getElementById('tabCalcBtn');
+            const missionBtn = document.getElementById('tabMissionBtn');
             const guideBtn = document.getElementById('tabGuideBtn');
 
-            if (tabName === 'calc') {
+            calcTab.classList.replace('block', 'hidden');
+            missionTab.classList.replace('block', 'hidden');
+            guideTab.classList.replace('block', 'hidden');
+            
+            calcBtn.className = "w-full sm:w-auto bg-gray-800 text-gray-400 hover:text-white font-bold text-xs uppercase tracking-wider py-2.5 px-5 rounded-xl transition focus:outline-none text-center";
+            missionBtn.className = "w-full sm:w-auto bg-gray-800 text-gray-400 hover:text-white font-bold text-xs uppercase tracking-wider py-2.5 px-5 rounded-xl transition focus:outline-none text-center";
+            guideBtn.className = "w-full sm:w-auto bg-gray-800 text-gray-400 hover:text-white font-bold text-xs uppercase tracking-wider py-2.5 px-5 rounded-xl transition focus:outline-none text-center";
+
+            if(tabName === 'calc') {
                 calcTab.classList.replace('hidden', 'block');
-                guideTab.classList.replace('block', 'hidden');
-                calcBtn.classList.replace('bg-gray-800', 'bg-blue-600');
-                calcBtn.classList.replace('text-gray-400', 'text-white');
-                guideBtn.classList.replace('bg-blue-600', 'bg-gray-800');
-                guideBtn.classList.replace('text-white', 'text-gray-400');
+                calcBtn.className = "bg-blue-600 text-white font-bold text-xs uppercase tracking-wider py-2.5 px-5 rounded-xl shadow-lg transition focus:outline-none";
+            } else if (tabName === 'mission') {
+                missionTab.classList.replace('hidden', 'block');
+                missionBtn.className = "bg-green-600 text-white font-bold text-xs uppercase tracking-wider py-2.5 px-5 rounded-xl shadow-lg transition focus:outline-none";
             } else {
                 guideTab.classList.replace('hidden', 'block');
-                calcTab.classList.replace('block', 'hidden');
-                guideBtn.classList.replace('bg-gray-800', 'bg-blue-600');
-                guideBtn.classList.replace('text-gray-400', 'text-white');
-                calcBtn.classList.replace('bg-blue-600', 'bg-gray-800');
-                calcBtn.classList.replace('text-white', 'text-gray-400');
+                guideBtn.className = "bg-blue-600 text-white font-bold text-xs uppercase tracking-wider py-2.5 px-5 rounded-xl shadow-lg transition focus:outline-none";
             }
         }
     </script>
 </body>
-
 </html>
