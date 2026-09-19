@@ -1,7 +1,7 @@
 /* ==========================================================================
    Avinox Calc — light "technical paper" theme
    Design tokens, minimal reset, component library.
-   No Tailwind, no !important. See docs/UI_REFACTOR_PLAN.md §3, §5.
+   No Tailwind, nessun "important". See docs/UI_REFACTOR_PLAN.md §3, §5.
    ========================================================================== */
 
 :root {
@@ -82,7 +82,7 @@ a { color: var(--accent); }
 *::-webkit-scrollbar-track { background: transparent; }
 
 @media (prefers-reduced-motion: reduce) {
-    * { transition: none !important; animation: none !important; }
+    *, *::before, *::after { transition: none; }
 }
 
 /* Focus visibile ovunque */
@@ -710,6 +710,99 @@ a { color: var(--accent); }
 #dropZone.border-green-500 { border-color: var(--accent); background: var(--accent-soft); }
 
 /* --------------------------------------------------------------------------
+   Componenti di layout dedicati al markup
+   -------------------------------------------------------------------------- */
+
+/* Stack verticale di form */
+.form-stack { display: flex; flex-direction: column; gap: .8rem; }
+.form-stack > .field-row { gap: .6rem; }
+
+.btn-block { width: 100%; }
+
+.preset-stack { display: flex; flex-direction: column; gap: .5rem; }
+
+/* Toggle drawer slider avanzati */
+.advanced-toggle { align-self: flex-start; }
+.advanced-panel {
+    display: flex;
+    flex-direction: column;
+    gap: .8rem;
+    padding: .8rem;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+}
+.advanced-panel:not(.hidden) { display: flex; }
+
+/* Riga numero + slider */
+.slider-row { display: flex; align-items: center; gap: .6rem; }
+.slider-value { flex: 0 0 68px; text-align: center; }
+
+/* Geometry picker */
+.track-list:not(.hidden) { display: flex; flex-direction: column; gap: .3rem; }
+.picker-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: .5rem;
+}
+.picker-actions { display: flex; gap: .3rem; flex: 0 0 auto; }
+
+/* Card compatta del riepilogo file */
+.kv-compact { gap: .05rem; padding: .7rem .8rem; }
+
+/* Statistiche BOOST */
+.boost-stats {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: .75rem;
+    margin-bottom: .6rem;
+}
+.boost-notes { display: flex; flex-direction: column; gap: .15rem; }
+
+/* Copia modalità proposta */
+.copy-btn { width: 100%; margin-top: .5rem; }
+
+/* Note elenco */
+.route-notes {
+    display: flex;
+    flex-direction: column;
+    gap: .1rem;
+    font-size: 11px;
+    color: var(--muted);
+}
+
+/* Panoramica mission: breakdown + pie */
+.mission-overview {
+    display: grid;
+    grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+    gap: 1.25rem;
+    align-items: center;
+}
+.pie-block { display: flex; flex-direction: column; align-items: center; }
+.pie-wrap { position: relative; width: 144px; height: 144px; }
+.pie-wrap canvas { position: absolute; inset: 0; }
+
+/* Sezioni del workspace */
+.workspace-section { display: flex; flex-direction: column; gap: .5rem; }
+
+/* Knowledge Base */
+.kb-grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.kb-tag {
+    display: block;
+    font-size: var(--fs-label);
+    font-weight: 700;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+    color: var(--accent);
+}
+.kb-table-wrap { overflow-x: auto; }
+
+@media (min-width: 1024px) {
+    .kb-grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+
+/* --------------------------------------------------------------------------
    Responsive (§6)
    -------------------------------------------------------------------------- */
 
@@ -744,6 +837,9 @@ a { color: var(--accent); }
     .result-grid, .cols-2, .cols-3, .cols-4, #resultsGrid { grid-template-columns: 1fr; }
     .summary-bar { flex-wrap: wrap; gap: .5rem; }
     .chart-box { height: 220px; }
+    .mission-overview { grid-template-columns: 1fr; }
+    .kb-grid, .kb-grid-4 { grid-template-columns: 1fr; }
+    .boost-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 
     /* Touch target ≥ 40px e niente zoom automatico iOS sugli input */
     .input, .select { min-height: 40px; font-size: 16px; }
@@ -757,4 +853,10 @@ a { color: var(--accent); }
 @media (max-width: 639px) {
     body { overflow: auto; }
     .sidebar-footer { padding-bottom: max(.75rem, env(safe-area-inset-bottom)); }
+}
+
+/* Riduzione del movimento: ultima regola del file così vince in cascata senza forzature (§G3). */
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after,
+    .btn, .tab, .card, .preset, .input, .select, .dropzone, .mini-btn, .mode-card { transition: none; }
 }

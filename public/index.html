@@ -3,525 +3,587 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Avinox Calc — Custom Setup Panel</title>
+    <title>Avinox Calc</title>
     <link rel="icon" href="/favicon.ico" sizes="any">
     <link rel="icon" type="image/png" sizes="64x64" href="/assets/favicon-64.png">
     <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-32.png">
     <link rel="apple-touch-icon" href="/assets/favicon-180.png">
-    <meta name="theme-color" content="#212529">
+    <meta name="theme-color" content="#FAF9F4">
     <meta name="description" content="Custom assist mode setup and route planning for DJI Avinox M2 and M2S e-bike motors.">
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdn.tailwindcss.com"></script>
     <script src="/route-file.js"></script>
     <link rel="stylesheet" href="/styles.css">
 </head>
-<body class="bg-gray-950 text-gray-100 min-h-screen font-sans overflow-y-scroll">
-    <div class="app-shell">
-        
-        <div class="app-header flex flex-col lg:flex-row justify-between items-start lg:items-center gap-3">
-            <div>
-                <img src="/assets/logo-full.png" alt="Avinox Calc" class="brand-logo-full">
-                <img src="/assets/logo-mark.png" alt="Avinox Calc" class="brand-logo-mark">
-                <p class="brand-subtitle text-sm font-medium mt-1">Tune DJI Avinox M2 / M2S assistance and plan battery-aware rides.</p>
-            </div>
-            <div class="workspace-nav" role="tablist" aria-label="Avinox Calc workspaces">
-                <button id="tabCalcBtn" onclick="switchTab('calc')" class="workspace-tab is-active" role="tab" aria-selected="true">
-                    ⚙️ 1. Engine Tuner
-                </button>
-                <button id="tabMissionBtn" onclick="switchTab('mission')" class="workspace-tab" role="tab" aria-selected="false">
-                    🚴 2. Route Simulator
-                </button>
-                <button id="tabGuideBtn" onclick="switchTab('guide')" class="workspace-tab" role="tab" aria-selected="false">
-                    📖 3. Knowledge Base
-                </button>
-            </div>
-        </div>
+<body>
+    <div id="app">
 
+        <header class="app-header">
+            <div class="brand">
+                <img src="/assets/logo-full.png" alt="Avinox Calc" class="brand-logo">
+                <img src="/assets/logo-mark.png" alt="Avinox Calc" class="brand-mark">
+            </div>
+            <nav class="tabs" role="tablist" aria-label="Avinox Calc workspaces">
+                <button id="tabCalcBtn" onclick="switchTab('calc')" class="tab is-active" role="tab" aria-selected="true" aria-controls="tabCalc">
+                    Engine Tuner
+                </button>
+                <button id="tabMissionBtn" onclick="switchTab('mission')" class="tab" role="tab" aria-selected="false" aria-controls="tabMission">
+                    Route Simulator
+                </button>
+                <button id="tabGuideBtn" onclick="switchTab('guide')" class="tab" role="tab" aria-selected="false" aria-controls="tabGuide">
+                    Knowledge Base
+                </button>
+            </nav>
+        </header>
+
+        <!-- ============================== Engine Tuner ============================== -->
         <div id="tabCalc" class="block">
-            <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-                
-                <div class="control-rail lg:col-span-4 space-y-6">
-                    
-                    <div class="bg-gray-900 p-5 rounded-2xl border border-gray-800 shadow-xl space-y-4">
-                        <div class="border-b border-gray-800 pb-2">
-                            <h2 class="text-xs font-black text-gray-400 uppercase tracking-widest">Step 1: Rider Variables</h2>
-                        </div>
-                        <form id="calcForm" class="space-y-3.5 text-sm">
-                            <div>
-                                <label for="bike" class="block text-xs font-semibold text-gray-400 mb-1">Motor</label>
-                                <select id="bike" class="w-full bg-gray-800 border border-gray-700 rounded-xl p-2.5 text-white font-medium focus:outline-none focus:border-blue-500 transition">
-                                    <option value="M2S" selected>Avinox M2S — 130 Nm / 1300 W</option>
-                                    <option value="M2">Avinox M2 — 110 Nm / 1100 W</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label for="batteryWh" class="block text-xs font-semibold text-gray-400 mb-1">Battery Pack</label>
-                                <select id="batteryWh" class="w-full bg-gray-800 border border-gray-700 rounded-xl p-2.5 text-white font-medium focus:outline-none focus:border-blue-500 transition">
-                                    <optgroup label="Integrated">
-                                        <option value="600">600 Wh — integrated</option>
-                                        <option value="700">700 Wh — FP700</option>
-                                        <option value="800" selected>800 Wh — integrated</option>
-                                    </optgroup>
-                                    <optgroup label="Removable">
-                                        <option value="600">600 Wh — RS600 (also a range extender)</option>
-                                        <option value="800">800 Wh — RS800</option>
-                                    </optgroup>
-                                </select>
-                                <p class="text-xxs text-gray-500 mt-1">The FP700 is the pack that unlocks the M2S's full 1500 W Boost.</p>
-                            </div>
-                            <div>
-                                <label for="boostDuration" class="block text-xs font-semibold text-gray-400 mb-1">Boost Duration (s)</label>
-                                <input type="number" id="boostDuration" value="30" min="1" max="60" step="1" required class="w-full bg-gray-800 border border-gray-700 rounded-xl p-2.5 text-white focus:outline-none focus:border-blue-500 transition">
-                                <p class="text-xxs text-gray-500 mt-1">Adjustable 1–60 s, default 30 s.</p>
-                            </div>
-                            <div class="grid grid-cols-2 gap-3">
-                                <div>
-                                    <label for="riderWeight" class="block text-xs font-semibold text-gray-400 mb-1">Rider Weight (kg)</label>
-                                    <input type="number" id="riderWeight" value="82" required class="w-full bg-gray-800 border border-gray-700 rounded-xl p-2.5 text-white focus:outline-none focus:border-blue-500 transition">
-                                </div>
-                                <div>
-                                    <label for="bikeWeight" class="block text-xs font-semibold text-gray-400 mb-1">Bike Weight (kg)</label>
-                                    <input type="number" id="bikeWeight" value="23" required class="w-full bg-gray-800 border border-gray-700 rounded-xl p-2.5 text-white focus:outline-none focus:border-blue-500 transition">
-                                </div>
-                            </div>
-                            <div class="grid grid-cols-2 gap-3">
-                                <div>
-                                    <label for="cadence" class="block text-xs font-semibold text-gray-400 mb-1">Cadence (RPM)</label>
-                                    <input type="number" id="cadence" value="75" required class="w-full bg-gray-800 border border-gray-700 rounded-xl p-2.5 text-white focus:outline-none focus:border-blue-500 transition">
-                                </div>
-                                <div>
-                                    <label for="riderPower" class="block text-xs font-semibold text-gray-400 mb-1">Rider Power (W)</label>
-                                    <input type="number" id="riderPower" value="200" required class="w-full bg-gray-800 border border-gray-700 rounded-xl p-2.5 text-white focus:outline-none focus:border-blue-500 transition">
-                                </div>
-                            </div>
-                            <button type="submit" class="hidden">Submit</button>
-                        </form>
-                    </div>
 
-                    <div class="bg-gray-900 p-5 rounded-2xl border border-gray-800 shadow-xl space-y-4">
-                        <div class="border-b border-gray-800 pb-2">
-                            <h2 class="text-xs font-black text-gray-400 uppercase tracking-widest">Step 2: Riding Style</h2>
-                        </div>
-                        
-                        <div class="space-y-2.5">
-                            <button type="button" onclick="loadPreset(1.36, 2.73, 5.45, 7.72)" class="w-full bg-gray-800 hover:bg-gray-750 text-left p-3 rounded-xl border border-gray-700 hover:border-blue-500 transition group">
-                                <span class="font-bold text-xs text-blue-400 uppercase tracking-wider group-hover:text-white transition block">🌟 Balanced Profile</span>
-                                <span class="text-xxs text-gray-400 mt-0.5 block">The perfect balance between active muscle engagement and motor efficiency.</span>
-                            </button>
-                            <button type="button" onclick="loadPreset(0.85, 1.75, 3.00, 4.25)" class="w-full bg-gray-800 hover:bg-gray-750 text-left p-3 rounded-xl border border-gray-700 hover:border-green-500 transition group">
-                                <span class="font-bold text-xs text-green-400 uppercase tracking-wider group-hover:text-white transition block">🍃 Marathon Preset (Max Savings)</span>
-                                <span class="text-xxs text-gray-400 mt-0.5 block">Maximum battery preservation designed for giant alpine loops over 3000m.</span>
-                            </button>
-                            <button type="button" onclick="loadPreset(1.75, 3.75, 6.75, 8.75)" class="w-full bg-gray-800 hover:bg-gray-750 text-left p-3 rounded-xl border border-gray-700 hover:border-red-500 transition group">
-                                <span class="font-bold text-xs text-red-400 uppercase tracking-wider group-hover:text-white transition block">🚀 Full Power Enduro</span>
-                                <span class="text-xxs text-gray-400 mt-0.5 block">Unleashes aggressive, responsive torque matching steep technical climbs.</span>
-                            </button>
-                        </div>
+            <aside class="sidebar">
+                <div class="sidebar-body">
 
-                        <div class="pt-2">
-                            <button type="button" onclick="toggleAdvancedSliders()" class="text-xxs font-bold text-yellow-500 hover:text-yellow-400 transition uppercase tracking-wider flex items-center space-x-1 focus:outline-none">
-                                <span id="advancedToggleIcon">🛠️</span> <span id="advancedToggleText">Show Advanced W/kg Sliders</span>
+                    <section class="card">
+                        <div class="card-header">
+                            <h2 class="section-title">Rider Variables</h2>
+                        </div>
+                        <div class="card-body">
+                            <form id="calcForm" class="form-stack">
+                                <div class="field">
+                                    <label for="bike">Motor</label>
+                                    <select id="bike" class="select">
+                                        <option value="M2S" selected>Avinox M2S — 130 Nm / 1300 W</option>
+                                        <option value="M2">Avinox M2 — 110 Nm / 1100 W</option>
+                                    </select>
+                                </div>
+                                <div class="field">
+                                    <label for="batteryWh">Battery Pack</label>
+                                    <select id="batteryWh" class="select">
+                                        <optgroup label="Integrated">
+                                            <option value="600">600 Wh — integrated</option>
+                                            <option value="700">700 Wh — FP700</option>
+                                            <option value="800" selected>800 Wh — integrated</option>
+                                        </optgroup>
+                                        <optgroup label="Removable">
+                                            <option value="600">600 Wh — RS600 (also a range extender)</option>
+                                            <option value="800">800 Wh — RS800</option>
+                                        </optgroup>
+                                    </select>
+                                    <p class="hint">The FP700 is the pack that unlocks the M2S's full 1500 W Boost.</p>
+                                </div>
+                                <div class="field">
+                                    <label for="boostDuration">Boost Duration (s)</label>
+                                    <input type="number" id="boostDuration" value="30" min="1" max="60" step="1" required class="input">
+                                    <p class="hint">Adjustable 1–60 s, default 30 s.</p>
+                                </div>
+                                <div class="field-row">
+                                    <div class="field">
+                                        <label for="riderWeight">Rider Weight (kg)</label>
+                                        <input type="number" id="riderWeight" value="82" required class="input">
+                                    </div>
+                                    <div class="field">
+                                        <label for="bikeWeight">Bike Weight (kg)</label>
+                                        <input type="number" id="bikeWeight" value="23" required class="input">
+                                    </div>
+                                </div>
+                                <div class="field-row">
+                                    <div class="field">
+                                        <label for="cadence">Cadence (RPM)</label>
+                                        <input type="number" id="cadence" value="75" required class="input">
+                                    </div>
+                                    <div class="field">
+                                        <label for="riderPower">Rider Power (W)</label>
+                                        <input type="number" id="riderPower" value="200" required class="input">
+                                    </div>
+                                </div>
+                                <button type="submit" class="hidden">Submit</button>
+                            </form>
+                        </div>
+                    </section>
+
+                    <section class="card">
+                        <div class="card-header">
+                            <h2 class="section-title">Riding Style</h2>
+                        </div>
+                        <div class="card-body">
+                            <div class="preset-stack">
+                                <button type="button" onclick="loadPreset(1.36, 2.73, 5.45, 7.72)" class="preset">
+                                    <span class="preset-title"><span class="preset-dot" data-mode="auto"></span>Balanced Profile</span>
+                                    <span class="preset-desc">The perfect balance between active muscle engagement and motor efficiency.</span>
+                                </button>
+                                <button type="button" onclick="loadPreset(0.85, 1.75, 3.00, 4.25)" class="preset">
+                                    <span class="preset-title"><span class="preset-dot" data-mode="eco"></span>Marathon Preset (Max Savings)</span>
+                                    <span class="preset-desc">Maximum battery preservation designed for giant alpine loops over 3000m.</span>
+                                </button>
+                                <button type="button" onclick="loadPreset(1.75, 3.75, 6.75, 8.75)" class="preset">
+                                    <span class="preset-title"><span class="preset-dot" data-mode="turbo"></span>Full Power Enduro</span>
+                                    <span class="preset-desc">Unleashes aggressive, responsive torque matching steep technical climbs.</span>
+                                </button>
+                            </div>
+
+                            <button type="button" onclick="toggleAdvancedSliders()" class="btn btn-ghost btn-sm advanced-toggle">
+                                <span id="advancedToggleIcon">▸</span> <span id="advancedToggleText">Show Advanced W/kg Sliders</span>
                             </button>
-                            
-                            <div id="advancedSlidersPanel" class="hidden mt-4 p-4 bg-gray-950 rounded-xl border border-gray-800 space-y-4">
-                                <div class="space-y-1">
-                                    <label for="ecoWkg" class="text-xxs font-bold uppercase text-gray-400">ECO Target</label>
-                                    <div class="flex items-center space-x-3">
-                                        <input type="number" id="ecoWkg" value="1.36" step="0.01" min="0.75" max="2.00" class="w-14 bg-gray-800 border border-gray-700 rounded-lg p-1 text-center text-xs text-white focus:outline-none">
-                                        <input type="range" id="ecoWkgSlider" value="1.36" step="0.01" min="0.75" max="2.00" class="w-full accent-blue-500">
+
+                            <div id="advancedSlidersPanel" class="hidden advanced-panel">
+                                <div class="field">
+                                    <label for="ecoWkg">ECO Target</label>
+                                    <div class="slider-row">
+                                        <input type="number" id="ecoWkg" value="1.36" step="0.01" min="0.75" max="2.00" class="input slider-value">
+                                        <input type="range" id="ecoWkgSlider" value="1.36" step="0.01" min="0.75" max="2.00" class="range">
                                     </div>
                                 </div>
-                                <div class="space-y-1">
-                                    <label for="autoWkg" class="text-xxs font-bold uppercase text-gray-400">AUTO Target</label>
-                                    <div class="flex items-center space-x-3">
-                                        <input type="number" id="autoWkg" value="2.73" step="0.01" min="1.50" max="4.50" class="w-14 bg-gray-800 border border-gray-700 rounded-lg p-1 text-center text-xs text-white focus:outline-none">
-                                        <input type="range" id="autoWkgSlider" value="2.73" step="0.01" min="1.50" max="4.50" class="w-full accent-blue-500">
+                                <div class="field">
+                                    <label for="autoWkg">AUTO Target</label>
+                                    <div class="slider-row">
+                                        <input type="number" id="autoWkg" value="2.73" step="0.01" min="1.50" max="4.50" class="input slider-value">
+                                        <input type="range" id="autoWkgSlider" value="2.73" step="0.01" min="1.50" max="4.50" class="range">
                                     </div>
                                 </div>
-                                <div class="space-y-1">
-                                    <label for="trailWkg" class="text-xxs font-bold uppercase text-gray-400">TRAIL Target</label>
-                                    <div class="flex items-center space-x-3">
-                                        <input type="number" id="trailWkg" value="5.45" step="0.01" min="2.50" max="7.50" class="w-14 bg-gray-800 border border-gray-700 rounded-lg p-1 text-center text-xs text-white focus:outline-none">
-                                        <input type="range" id="trailWkgSlider" value="5.45" step="0.01" min="2.50" max="7.50" class="w-full accent-blue-500">
+                                <div class="field">
+                                    <label for="trailWkg">TRAIL Target</label>
+                                    <div class="slider-row">
+                                        <input type="number" id="trailWkg" value="5.45" step="0.01" min="2.50" max="7.50" class="input slider-value">
+                                        <input type="range" id="trailWkgSlider" value="5.45" step="0.01" min="2.50" max="7.50" class="range">
                                     </div>
                                 </div>
-                                <div class="space-y-1">
-                                    <label for="turboWkg" class="text-xxs font-bold uppercase text-gray-400">TURBO Target</label>
-                                    <div class="flex items-center space-x-3">
-                                        <input type="number" id="turboWkg" value="7.72" step="0.01" min="3.50" max="10.00" class="w-14 bg-gray-800 border border-gray-700 rounded-lg p-1 text-center text-xs text-white focus:outline-none">
-                                        <input type="range" id="turboWkgSlider" value="7.72" step="0.01" min="3.50" max="10.00" class="w-full accent-blue-500">
+                                <div class="field">
+                                    <label for="turboWkg">TURBO Target</label>
+                                    <div class="slider-row">
+                                        <input type="number" id="turboWkg" value="7.72" step="0.01" min="3.50" max="10.00" class="input slider-value">
+                                        <input type="range" id="turboWkgSlider" value="7.72" step="0.01" min="3.50" max="10.00" class="range">
                                     </div>
                                 </div>
                             </div>
                         </div>
+                    </section>
 
-                        <button onclick="updateSetup()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-3 px-4 rounded-xl transition uppercase tracking-wider text-xs shadow-lg mt-2">
-                            Generate Custom Setup
-                        </button>
-                    </div>
                 </div>
+                <div class="sidebar-footer">
+                    <button onclick="updateSetup()" class="btn btn-primary btn-block">
+                        Generate Custom Setup
+                    </button>
+                </div>
+            </aside>
 
-                <div class="workspace-main lg:col-span-8 space-y-6">
-                    
-                    <div class="bg-gray-900 p-6 rounded-2xl border border-gray-800 shadow-xl space-y-4">
-                        <div class="border-b border-gray-800 pb-3 flex justify-between items-center">
-                            <div>
-                                <h2 class="text-xs font-black text-gray-400 uppercase tracking-widest">Avinox App Custom Setup</h2>
-                                <p class="text-xxs text-gray-500">Copy these exact values into your DJI Avinox mobile application</p>
-                            </div>
-                            <span id="sysWeight" class="bg-blue-950 text-blue-300 border border-blue-900 px-3 py-1 rounded-lg text-xs font-bold">Total Weight: -- kg</span>
+            <main class="workspace">
+                <div class="workspace-body">
+
+                    <div class="summary-bar">
+                        <div>
+                            <h2 class="section-title">Avinox App Custom Setup</h2>
+                            <p class="card-subtitle">Copy these exact values into your DJI Avinox mobile application</p>
                         </div>
-                        <div id="calcWarnings"></div>
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4" id="resultsGrid"></div>
+                        <span id="sysWeight" class="summary-item" aria-live="polite">Total Weight: -- kg</span>
                     </div>
+
+                    <div id="calcWarnings"></div>
+
+                    <div class="result-grid cols-2" id="resultsGrid"></div>
 
                     <div id="boostCard"></div>
 
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 bg-gray-900 p-6 rounded-2xl border border-gray-800 shadow-xl">
-                        <div class="h-64 flex flex-col">
-                            <h3 class="text-xxs font-black uppercase tracking-widest text-gray-400 mb-3 text-center" id="rangeChartTitle">Estimated Max Range (km)</h3>
-                            <div class="flex-1 relative w-full px-2">
-                                <canvas id="rangeChart"></canvas>
+                    <div class="chart-card">
+                        <div class="chart-grid">
+                            <div class="chart-box">
+                                <h3 class="chart-title" id="rangeChartTitle">Estimated Max Range (km)</h3>
+                                <div class="chart-area">
+                                    <canvas id="rangeChart"></canvas>
+                                </div>
                             </div>
-                        </div>
-                        <div class="h-64 flex flex-col">
-                            <h3 class="text-xxs font-black uppercase tracking-widest text-gray-400 mb-3 text-center">Continuous Motor Runtime (Hours)</h3>
-                            <div class="flex-1 relative w-full px-2">
-                                <canvas id="runtimeChart"></canvas>
+                            <div class="chart-box">
+                                <h3 class="chart-title">Continuous Motor Runtime (Hours)</h3>
+                                <div class="chart-area">
+                                    <canvas id="runtimeChart"></canvas>
+                                </div>
                             </div>
                         </div>
                     </div>
 
                 </div>
-            </div>
+            </main>
         </div>
 
+        <!-- ============================== Route Simulator ============================== -->
         <div id="tabMission" class="hidden">
-            <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-                <div class="control-rail lg:col-span-4 bg-gray-900 p-5 rounded-2xl border border-gray-800 shadow-xl space-y-4">
-                    <div class="border-b border-gray-800 pb-2">
-                        <h2 class="text-xs font-black text-gray-400 uppercase tracking-widest">Route Source</h2>
-                    </div>
-                    <form id="missionForm" class="space-y-4 text-sm">
-                        <div class="grid grid-cols-2 gap-2">
-                            <button type="button" id="srcManualBtn" onclick="setRouteSource('manual')"
-                                class="source-toggle is-active" aria-pressed="true">Manual</button>
-                            <button type="button" id="srcFileBtn" onclick="setRouteSource('file')"
-                                class="source-toggle" aria-pressed="false">Route file</button>
+
+            <aside class="sidebar">
+                <div class="sidebar-body">
+                    <section class="card">
+                        <div class="card-header">
+                            <h2 class="section-title">Route Source</h2>
                         </div>
-
-                        <div class="space-y-4">
-                            <div>
-                                <label for="targetKm" class="block text-xs font-semibold text-gray-400 mb-1">Distance (km)</label>
-                                <input type="number" id="targetKm" value="70" min="0.1" step="0.1" required class="w-full bg-gray-800 border border-gray-700 rounded-xl p-2.5 text-white focus:outline-none focus:border-green-500 transition">
-                            </div>
-                            <div>
-                                <label for="targetH_m" class="block text-xs font-semibold text-gray-400 mb-1">Elevation gain (m)</label>
-                                <input type="number" id="targetH_m" value="1500" min="0" step="1" required class="w-full bg-gray-800 border border-gray-700 rounded-xl p-2.5 text-white focus:outline-none focus:border-green-500 transition">
-                            </div>
-                            <p class="text-xxs text-gray-500">In <strong class="text-gray-400">Route file</strong> mode these are filled from the file and stay editable.</p>
-
-                            <div class="grid grid-cols-2 gap-3">
-                                <div>
-                                    <label for="surface" class="block text-xs font-semibold text-gray-400 mb-1">Surface</label>
-                                    <select id="surface" class="w-full bg-gray-800 border border-gray-700 rounded-xl p-2.5 text-white text-xs focus:outline-none focus:border-green-500 transition">
-                                        <option value="road">Road</option>
-                                        <option value="gravel">Gravel</option>
-                                        <option value="mixed" selected>Mixed trail</option>
-                                        <option value="technical">Technical MTB</option>
-                                    </select>
+                        <div class="card-body">
+                            <p id="missionSetupChip" class="setup-chip">Using M2S · 800 Wh — set in Engine Tuner</p>
+                            <form id="missionForm" class="form-stack">
+                                <div class="segmented" role="group" aria-label="Route source">
+                                    <button type="button" id="srcManualBtn" onclick="setRouteSource('manual')"
+                                        class="is-active" aria-pressed="true">Manual</button>
+                                    <button type="button" id="srcFileBtn" onclick="setRouteSource('file')"
+                                        aria-pressed="false">Route file</button>
                                 </div>
-                                <div>
-                                    <label for="reservePercent" class="block text-xs font-semibold text-gray-400 mb-1">Reserve at finish</label>
-                                    <div class="flex items-center gap-2">
-                                        <input type="number" id="reservePercent" value="15" min="0" max="50" step="5" class="w-full bg-gray-800 border border-gray-700 rounded-xl p-2.5 text-white focus:outline-none focus:border-green-500 transition">
-                                        <span class="text-xs text-gray-500">%</span>
+
+                                <div class="field">
+                                    <label for="targetKm">Distance (km)</label>
+                                    <input type="number" id="targetKm" value="70" min="0.1" step="0.1" required class="input">
+                                </div>
+                                <div class="field">
+                                    <label for="targetH_m">Elevation gain (m)</label>
+                                    <input type="number" id="targetH_m" value="1500" min="0" step="1" required class="input">
+                                </div>
+                                <p class="hint">In <strong>Route file</strong> mode these are filled from the file and stay editable.</p>
+
+                                <div class="field-row">
+                                    <div class="field">
+                                        <label for="surface">Surface</label>
+                                        <select id="surface" class="select">
+                                            <option value="road">Road</option>
+                                            <option value="gravel">Gravel</option>
+                                            <option value="mixed" selected>Mixed trail</option>
+                                            <option value="technical">Technical MTB</option>
+                                        </select>
+                                    </div>
+                                    <div class="field">
+                                        <label for="reservePercent">Reserve at finish</label>
+                                        <div class="slider-row">
+                                            <input type="number" id="reservePercent" value="15" min="0" max="50" step="5" class="input">
+                                            <span class="hint">%</span>
+                                        </div>
                                     </div>
                                 </div>
-                            </div>
-                        </div>
 
-                        <div id="fileSource" class="hidden space-y-3">
-                            <div id="dropZone"
-                                class="border-2 border-dashed border-gray-700 rounded-xl p-4 text-center cursor-pointer hover:border-green-500 transition">
-                                <p class="text-xs text-gray-400">Drop a <strong class="text-gray-200">.gpx</strong> or
-                                    <strong class="text-gray-200">.kml</strong> file here</p>
-                                <p class="text-xxs text-gray-500 mt-1">or click to choose</p>
-                            </div>
-                            <input type="file" id="routeFileInput" accept=".gpx,.kml,application/gpx+xml,application/vnd.google-earth.kml+xml" class="hidden">
-                            <p class="text-xxs text-gray-500">Parsed on your device — coordinates are never uploaded.</p>
-                            <div id="fileStatus" class="text-xxs"></div>
-                            <div id="geometryPicker" class="hidden space-y-1.5"></div>
-                            <div id="fileSummary" class="hidden"></div>
+                                <div id="fileSource" class="hidden form-stack">
+                                    <div id="dropZone" class="dropzone">
+                                        <p>Drop a <strong>.gpx</strong> or <strong>.kml</strong> file here</p>
+                                        <p class="hint">or click to choose</p>
+                                    </div>
+                                    <input type="file" id="routeFileInput" accept=".gpx,.kml,application/gpx+xml,application/vnd.google-earth.kml+xml" class="hidden">
+                                    <p class="hint">Parsed on your device — coordinates are never uploaded.</p>
+                                    <div id="fileStatus" class="file-status" aria-live="polite"></div>
+                                    <div id="geometryPicker" class="hidden track-list"></div>
+                                    <div id="fileSummary" class="hidden"></div>
+                                </div>
+                            </form>
                         </div>
-
-                        <button type="submit" class="w-full bg-green-600 hover:bg-green-700 text-white font-black py-3 px-4 rounded-xl transition uppercase tracking-wider text-xs shadow-lg">
-                            Analyze Strategy
-                        </button>
-                    </form>
+                    </section>
                 </div>
+                <div class="sidebar-footer">
+                    <button type="submit" form="missionForm" class="btn btn-primary btn-block">
+                        Analyze Strategy
+                    </button>
+                </div>
+            </aside>
 
-                <div class="workspace-main lg:col-span-8 bg-gray-900 p-6 rounded-2xl border border-gray-800 shadow-xl space-y-5">
-                    <div class="flex justify-between items-center border-b border-gray-800 pb-2">
+            <main class="workspace">
+                <div class="workspace-body">
+
+                    <div class="summary-bar">
                         <div>
-                            <h2 class="text-xs font-black text-gray-400 uppercase tracking-widest">Energy Feasibility Status</h2>
+                            <h2 class="section-title">Energy Feasibility Status</h2>
                         </div>
-                        <span id="energyVerdict" class="px-2.5 py-1 rounded-md text-xxs font-black uppercase tracking-wider border">--</span>
-                    </div>
-                    
-                    <div class="grid grid-cols-1 md:grid-cols-12 gap-6 bg-gray-950 p-5 rounded-xl border border-gray-800 items-center">
-                        <div class="md:col-span-7 text-xs text-gray-300 font-mono space-y-2.5" id="energyBreakdown">
-                            Enter route parameters and execute the analysis to compute the electrical projection.
-                        </div>
-                        <div class="md:col-span-5 flex flex-col items-center">
-                            <div class="h-36 w-36 relative">
-                                <canvas id="missionPieChart"></canvas>
-                            </div>
-                            <div class="flex space-x-3 mt-4 text-xxs font-bold text-gray-400">
-                                <span class="flex items-center"><span class="w-2 h-2 rounded-full bg-green-500 mr-1"></span> ECO</span>
-                                <span class="flex items-center"><span class="w-2 h-2 rounded-full bg-blue-500 mr-1"></span> AUTO</span>
-                                <span class="flex items-center"><span class="w-2 h-2 rounded-full bg-yellow-500 mr-1"></span> TRAIL</span>
-                                <span class="flex items-center"><span class="w-2 h-2 rounded-full bg-red-500 mr-1"></span> TURBO</span>
-                            </div>
-                        </div>
+                        <span id="energyVerdict" class="badge badge-soft" aria-live="polite">--</span>
                     </div>
 
-                    <h3 class="text-xs font-black text-gray-400 uppercase tracking-widest pt-2">Recommended Safety Boundaries</h3>
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4" id="missionGrid"></div>
+                    <section class="card">
+                        <div class="card-body mission-overview">
+                            <div id="energyBreakdown" class="kv">
+                                Enter route parameters and execute the analysis to compute the electrical projection.
+                            </div>
+                            <div class="pie-block">
+                                <div class="pie-wrap">
+                                    <canvas id="missionPieChart"></canvas>
+                                </div>
+                                <div class="legend">
+                                    <span><span class="legend-dot" style="background: var(--mode-eco);"></span> ECO</span>
+                                    <span><span class="legend-dot" style="background: var(--mode-auto);"></span> AUTO</span>
+                                    <span><span class="legend-dot" style="background: var(--mode-trail);"></span> TRAIL</span>
+                                    <span><span class="legend-dot" style="background: var(--mode-turbo);"></span> TURBO</span>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
 
-                    <div id="routeAnalysis" class="hidden space-y-2">
-                        <h3 class="text-xs font-black text-gray-400 uppercase tracking-widest pt-2">Route Analysis</h3>
+                    <section class="workspace-section">
+                        <h3 class="section-title">Recommended Safety Boundaries</h3>
+                        <div class="result-grid cols-2" id="missionGrid"></div>
+                    </section>
+
+                    <div id="routeAnalysis" class="hidden workspace-section">
+                        <h3 class="section-title">Route Analysis</h3>
                         <div id="gradeBars"></div>
                         <div id="climbList"></div>
                     </div>
 
-                    <div id="routeModes" class="hidden space-y-3">
-                        <h3 class="text-xs font-black text-gray-400 uppercase tracking-widest pt-2">Proposed Route Modes</h3>
-                        <p class="text-xxs text-gray-500">Custom modes use a <strong class="text-gray-400">fixed</strong> assist level. Values are already snapped to the app's entry grid (5 Nm / 50 W).</p>
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4" id="routeModesGrid"></div>
-                        <div id="routeModeNotes" class="text-xxs text-gray-500 space-y-1"></div>
+                    <div id="routeModes" class="hidden workspace-section">
+                        <h3 class="section-title">Proposed Route Modes</h3>
+                        <p class="hint">Custom modes use a <strong>fixed</strong> assist level. Values are already snapped to the app's entry grid (5 Nm / 50 W).</p>
+                        <div class="result-grid" id="routeModesGrid"></div>
+                        <div id="routeModeNotes" class="route-notes"></div>
                     </div>
 
                     <div id="elevationPanel" class="hidden">
-                        <h3 class="text-xs font-black text-gray-400 uppercase tracking-widest pt-2">Elevation Profile</h3>
-                        <div class="h-56 flex flex-col mt-2">
-                            <div class="flex-1 relative w-full px-2">
-                                <canvas id="elevationChart"></canvas>
+                        <div class="chart-card">
+                            <h3 class="chart-title">Elevation Profile</h3>
+                            <div class="chart-box">
+                                <div class="chart-area">
+                                    <canvas id="elevationChart"></canvas>
+                                </div>
                             </div>
+                            <p id="elevationNote" class="hint"></p>
                         </div>
-                        <p id="elevationNote" class="text-xxs text-gray-500 mt-1"></p>
                     </div>
+
                 </div>
-            </div>
+            </main>
         </div>
 
-        <div id="tabGuide" class="hidden knowledge-shell space-y-8">
-            <nav class="knowledge-nav" aria-label="Knowledge Base sections">
-                <a href="#kb-quick">Quick Start</a>
-                <a href="#kb-sliders">W/kg Sliders</a>
-                <a href="#kb-parameters">Parameters</a>
-                <a href="#kb-modes">Fixed vs Range</a>
-                <a href="#kb-grid">Entry Grid</a>
-                <a href="#kb-formula">Formula</a>
-            </nav>
-            
-            <div id="kb-quick" class="knowledge-section bg-gray-900 p-6 rounded-2xl border border-gray-800 shadow-xl space-y-4">
-                <div class="border-b border-gray-800 pb-3">
-                    <h2 class="text-base font-black text-blue-400 uppercase tracking-wider">📋 Quick Start Application Guide</h2>
-                    <p class="text-xs text-gray-500">Follow these basic checkpoints to secure your ecosystem profile metrics</p>
-                </div>
-                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
-                    <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 space-y-2">
-                        <span class="text-blue-500 font-black text-sm">01.</span>
-                        <h3 class="font-bold text-white uppercase tracking-wider">Input Data</h3>
-                        <p class="text-gray-400 leading-relaxed">Pick your battery pack — integrated (600 / 700 / 800 Wh) or removable (RS600 / RS800) — and enter your total system weight including packed equipment.</p>
-                    </div>
-                    <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 space-y-2">
-                        <span class="text-green-500 font-black text-sm">02.</span>
-                        <h3 class="font-bold text-white uppercase tracking-wider">Choose Style</h3>
-                        <p class="text-gray-400 leading-relaxed">Click a pre-calculated shortcut card (Balanced, Marathon, Power) or unveil the advanced sliders to fine-tune inputs.</p>
-                    </div>
-                    <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 space-y-2">
-                        <span class="text-yellow-500 font-black text-sm">03.</span>
-                        <h3 class="font-bold text-white uppercase tracking-wider">Transfer Metrics</h3>
-                        <p class="text-gray-400 leading-relaxed">Open the official DJI Avinox app on your smartphone and mirror the mapped values of Watts, Nm and bound ranges.</p>
-                    </div>
-                    <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 space-y-2">
-                        <span class="text-red-500 font-black text-sm">04.</span>
-                        <h3 class="font-bold text-white uppercase tracking-wider">Simulate Loop</h3>
-                        <p class="text-gray-400 leading-relaxed">Flip the console to the "Route Simulator" panel, insert terrain dimensions and run safety validation margins.</p>
-                    </div>
-                </div>
-            </div>
+        <!-- ============================== Knowledge Base ============================== -->
+        <div id="tabGuide" class="hidden">
 
-            <div id="kb-sliders" class="knowledge-section bg-gray-900 p-6 rounded-2xl border border-gray-800 shadow-xl space-y-4">
-                <div class="border-b border-gray-800 pb-3">
-                    <h2 class="text-base font-black text-purple-400 uppercase tracking-wider">🎛️ Mastering the Advanced W/kg Sliders</h2>
-                    <p class="text-xs text-gray-500">How to use the manual sliders to mathematically manipulate motor output limits</p>
+            <aside class="sidebar">
+                <div class="sidebar-body">
+                    <section class="card">
+                        <div class="card-header">
+                            <h2 class="section-title">Knowledge Base</h2>
+                        </div>
+                        <div class="card-body">
+                            <nav class="kb-nav" aria-label="Knowledge Base sections">
+                                <a href="#kb-quick">Quick Start</a>
+                                <a href="#kb-sliders">W/kg Sliders</a>
+                                <a href="#kb-parameters">Parameters</a>
+                                <a href="#kb-modes">Fixed vs Range</a>
+                                <a href="#kb-grid">Entry Grid</a>
+                                <a href="#kb-formula">Formula</a>
+                            </nav>
+                        </div>
+                    </section>
                 </div>
-                <p class="text-sm text-gray-300 leading-relaxed">
-                    By expanding the drawer on the tuner screen, you gain granular control over the electrical curves. Each slider represents the desired power target in <strong>Watts per Kilogram (W/kg)</strong> of total system weight. The application processes these thresholds to define specific app limits:
-                </p>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-                    <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 space-y-1">
-                        <span class="font-bold text-green-400 uppercase block mb-1">ECO Slider (Range: 0.75 – 2.00 W/kg)</span>
-                        <p class="text-gray-400 leading-relaxed">Sets the baseline background support. Dropping it below 1.00 W/kg creates a highly natural feel that demands active muscle force but preserves tremendous battery life on flat transit paths.</p>
-                    </div>
-                    <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 space-y-1">
-                        <span class="font-bold text-blue-400 uppercase block mb-1">AUTO Slider (Range: 1.50 – 4.50 W/kg)</span>
-                        <p class="text-gray-400 leading-relaxed">Adjusts the top ceiling for the system's dynamic mode. A higher value causes the Avinox smart algorithm to scale up power output much faster on changing slopes, compensating for sudden steep sections.</p>
-                    </div>
-                    <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 space-y-1">
-                        <span class="font-bold text-yellow-500 uppercase block mb-1">TRAIL Slider (Range: 2.50 – 7.50 W/kg)</span>
-                        <p class="text-gray-400 leading-relaxed">Controls sustained technical singletrack delivery. Keeping this slider bounded between 5.00 and 5.50 W/kg delivers exceptional technical climbing punch without spinning out or losing tire traction on loose gravel tracks.</p>
-                    </div>
-                    <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 space-y-1">
-                        <span class="font-bold text-red-400 uppercase block mb-1">TURBO Slider (Range: 3.50 – 10.00 W/kg)</span>
-                        <p class="text-gray-400 leading-relaxed">Manages the emergency acceleration ceiling. Sliding this setting to &ge; 6.00 W/kg activates the High Energy Drain Zone, triggering visual warnings because power draws scale exponentially.</p>
-                    </div>
-                </div>
-            </div>
+            </aside>
 
-            <div id="kb-parameters" class="knowledge-section bg-gray-900 p-6 rounded-2xl border border-gray-800 shadow-xl space-y-4">
-                <div class="border-b border-gray-800 pb-3">
-                    <h2 class="text-base font-black text-yellow-500 uppercase tracking-wider">🛠️ Parameters Dictionary & Logic Boundaries</h2>
-                    <p class="text-xs text-gray-500">Understanding the core thresholds of the DJI Avinox software</p>
-                </div>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-                    <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 space-y-1">
-                        <h4 class="font-bold text-white uppercase tracking-wide flex justify-between"><span>Multiplier (W/kg)</span> <span class="text-yellow-500 text-xxs">Primary Input Variable</span></h4>
-                        <p class="text-gray-400 leading-relaxed">Determines the motor power limits adjusted to the system total mass. Shifting this threshold automatically recalibrates all subsequent watt parameters across every active mode profile.</p>
-                    </div>
-                    <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 space-y-1">
-                        <h4 class="font-bold text-white uppercase tracking-wide flex justify-between"><span>Power Limit (Watts)</span> <span class="text-green-500 text-xxs">Battery Control</span></h4>
-                        <p class="text-gray-400 leading-relaxed">Specifies the continuous electrical power maximum of the system. Restricting this limit (e.g., 150W in ECO) acts as the primary protection layer against premature battery drainage.</p>
-                    </div>
-                    <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 space-y-1">
-                        <h4 class="font-bold text-white uppercase tracking-wide flex justify-between"><span>Max Torque (Nm)</span> <span class="text-blue-500 text-xxs">Response Dynamics</span></h4>
-                        <p class="text-gray-400 leading-relaxed">Defines the peak turning force of the motor block. Lower settings offer smooth traction, while values exceeding 80 Nm produce a quick, dirtbike-like engagement on steep trails.</p>
-                    </div>
-                    <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 space-y-1">
-                        <h4 class="font-bold text-white uppercase tracking-wide flex justify-between"><span>Assist Level (Multiplier Factor)</span> <span class="text-purple-500 text-xxs">Bio-Mechanical Match</span></h4>
-                        <p class="text-gray-400 leading-relaxed">Determines how many times the motor multiplies your manual leg effort. Highly useful for compensating rider fatigue without changing the absolute power boundaries.</p>
-                    </div>
-                </div>
-            </div>
+            <main class="workspace">
+                <div class="workspace-body kb-content">
 
-            <div id="kb-modes" class="knowledge-section bg-gray-900 p-6 rounded-2xl border border-gray-800 shadow-xl space-y-4">
-                <div class="border-b border-gray-800 pb-3">
-                    <h2 class="text-base font-black text-teal-400 uppercase tracking-wider">🔒 Assist Level: Fixed vs Range</h2>
-                    <p class="text-xs text-gray-500">How each mode behaves, and what is verified against the Avinox app</p>
-                </div>
-                <div class="overflow-x-auto">
-                    <table class="w-full text-left text-xs border border-gray-800">
-                        <thead class="bg-gray-950 text-gray-300 uppercase tracking-wider">
-                            <tr>
-                                <th class="p-2 border border-gray-800">Mode</th>
-                                <th class="p-2 border border-gray-800">Assist Level</th>
-                                <th class="p-2 border border-gray-800">Behaviour</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-gray-800 text-gray-400">
-                            <tr>
-                                <td class="p-2 border border-gray-800 font-bold text-green-400">ECO</td>
-                                <td class="p-2 border border-gray-800">Fixed (single level)</td>
-                                <td class="p-2 border border-gray-800">Constant assistance, lowest consumption.</td>
-                            </tr>
-                            <tr class="bg-gray-950">
-                                <td class="p-2 border border-gray-800 font-bold text-blue-400">AUTO</td>
-                                <td class="p-2 border border-gray-800">Range (min–max)</td>
-                                <td class="p-2 border border-gray-800">Varies assistance with resistance. Only mode with Max Acceleration.</td>
-                            </tr>
-                            <tr>
-                                <td class="p-2 border border-gray-800 font-bold text-yellow-500">TRAIL</td>
-                                <td class="p-2 border border-gray-800">Range (min–max)</td>
-                                <td class="p-2 border border-gray-800">Wide range, technical climbing support.</td>
-                            </tr>
-                            <tr class="bg-gray-950">
-                                <td class="p-2 border border-gray-800 font-bold text-red-400">TURBO</td>
-                                <td class="p-2 border border-gray-800">Fixed (single level)</td>
-                                <td class="p-2 border border-gray-800">Constant maximum assistance.</td>
-                            </tr>
-                            <tr>
-                                <td class="p-2 border border-gray-800 font-bold text-purple-400">Custom modes</td>
-                                <td class="p-2 border border-gray-800">Fixed (single level)</td>
-                                <td class="p-2 border border-gray-800">Modes added with the “+” button in the app do not use ranges.</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-                    <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 space-y-1">
-                        <span class="font-bold text-purple-400 uppercase block mb-1">Boost Duration</span>
-                        <p class="text-gray-400 leading-relaxed">Adjustable from 1 to 60 seconds, default 30 s. Torque and power in Boost are fixed by the hardware and are not user adjustable. On the M2S the full 1500 W requires the <strong class="text-gray-300">FP700 (700 Wh)</strong> pack; with any other battery peak Boost output is lower.</p>
-                    </div>
-                    <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 space-y-1">
-                        <span class="font-bold text-teal-400 uppercase block mb-1">Battery Packs</span>
-                        <p class="text-gray-400 leading-relaxed">Integrated: 600 / 700 (<strong class="text-gray-300">FP700</strong>) / 800 Wh. Removable: <strong class="text-gray-300">RS600</strong> (600 Wh, also usable as a range extender) and <strong class="text-gray-300">RS800</strong> (800 Wh).</p>
-                    </div>
-                    <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 space-y-1">
-                        <span class="font-bold text-gray-300 uppercase block mb-1">Boost Local Enhancement</span>
-                        <p class="text-gray-400 leading-relaxed">A switch inside Custom Assist Modes. It is entirely the rider's choice and is <strong class="text-gray-300">not</strong> used anywhere in this calculator's math.</p>
-                    </div>
-                </div>
-                <p class="text-xxs text-gray-500 leading-relaxed">
-                    <strong class="text-gray-400">What is verified:</strong> the Fixed/Range behaviour of each mode, the adjustable Boost duration, and the M2 / M2S torque and power figures.<br>
-                    <strong class="text-gray-400">What is this project's own calibration:</strong> the 15-level support table, the per-mode level bands (ECO 1-7, AUTO 3-11, TRAIL 6-13, TURBO 8-15), the W/kg targets and the range/runtime estimate. These are tuning assumptions, not Avinox specifications.
-                </p>
-            </div>
+                    <section id="kb-quick" class="kb-section card">
+                        <div class="card-header">
+                            <div>
+                                <h2 class="card-title">Quick Start Application Guide</h2>
+                                <p class="kb-subtitle">Follow these basic checkpoints to secure your ecosystem profile metrics</p>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div class="kb-grid kb-grid-4">
+                                <div class="kb-tile">
+                                    <span class="kb-num">01.</span>
+                                    <h3>Input Data</h3>
+                                    <p>Pick your battery pack — integrated (600 / 700 / 800 Wh) or removable (RS600 / RS800) — and enter your total system weight including packed equipment.</p>
+                                </div>
+                                <div class="kb-tile">
+                                    <span class="kb-num">02.</span>
+                                    <h3>Choose Style</h3>
+                                    <p>Click a pre-calculated shortcut card (Balanced, Marathon, Power) or unveil the advanced sliders to fine-tune inputs.</p>
+                                </div>
+                                <div class="kb-tile">
+                                    <span class="kb-num">03.</span>
+                                    <h3>Transfer Metrics</h3>
+                                    <p>Open the official DJI Avinox app on your smartphone and mirror the mapped values of Watts, Nm and bound ranges.</p>
+                                </div>
+                                <div class="kb-tile">
+                                    <span class="kb-num">04.</span>
+                                    <h3>Simulate Loop</h3>
+                                    <p>Flip the console to the "Route Simulator" panel, insert terrain dimensions and run safety validation margins.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
 
-            <div id="kb-grid" class="knowledge-section bg-gray-900 p-6 rounded-2xl border border-gray-800 shadow-xl space-y-4">
-                <div class="border-b border-gray-800 pb-3">
-                    <h2 class="text-base font-black text-teal-400 uppercase tracking-wider">🎯 Entry Grid: Why Values Are Rounded</h2>
-                    <p class="text-xs text-gray-500">The Avinox app does not accept arbitrary numbers</p>
-                </div>
-                <p class="text-sm text-gray-300 leading-relaxed">
-                    Max Torque and Max Power are <strong>stepped</strong> in the app: you cannot enter any value you like.
-                    This calculator therefore snaps every suggestion to the grid, so what you read here is exactly what you can enter.
-                </p>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-                    <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 space-y-1">
-                        <span class="font-bold text-blue-400 uppercase block mb-1">Max Torque — 5 Nm steps</span>
-                        <p class="text-gray-400 leading-relaxed">Real-world setups use 50, 75, 85 and 105 Nm. Since 75/85/105 are not multiples of 10, the step must be 5 Nm.</p>
-                    </div>
-                    <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 space-y-1">
-                        <span class="font-bold text-green-400 uppercase block mb-1">Max Power — 50 W steps</span>
-                        <p class="text-gray-400 leading-relaxed">Real-world setups use 400, 500, 600, 700, 750 and 850 W. Since 750/850 are not multiples of 100, the step must be 50 W.</p>
-                    </div>
-                </div>
-                <p class="text-xxs text-gray-500 leading-relaxed">
-                    When rounding moves a value, the card shows the computed figure in brackets next to the one to enter
-                    (e.g. <span class="text-gray-400">800 W (computed 811 W)</span>). Torque is always capped by the motor
-                    (110 Nm on the M2, 130 Nm on the M2S).<br>
-                    <strong class="text-gray-400">To confirm:</strong> the exact steps and any per-mode minimum or maximum are read
-                    off the app itself. If your app uses a different step, it is a single constant to change in <code class="text-gray-300">src/server.ts</code>.
-                </p>
-            </div>
+                    <section id="kb-sliders" class="kb-section card">
+                        <div class="card-header">
+                            <div>
+                                <h2 class="card-title">Mastering the Advanced W/kg Sliders</h2>
+                                <p class="kb-subtitle">How to use the manual sliders to mathematically manipulate motor output limits</p>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <p>
+                                By expanding the drawer on the tuner screen, you gain granular control over the electrical curves. Each slider represents the desired power target in <strong>Watts per Kilogram (W/kg)</strong> of total system weight. The application processes these thresholds to define specific app limits:
+                            </p>
+                            <div class="kb-grid">
+                                <div class="kb-tile">
+                                    <h4>ECO Slider (Range: 0.75 – 2.00 W/kg)</h4>
+                                    <p>Sets the baseline background support. Dropping it below 1.00 W/kg creates a highly natural feel that demands active muscle force but preserves tremendous battery life on flat transit paths.</p>
+                                </div>
+                                <div class="kb-tile">
+                                    <h4>AUTO Slider (Range: 1.50 – 4.50 W/kg)</h4>
+                                    <p>Adjusts the top ceiling for the system's dynamic mode. A higher value causes the Avinox smart algorithm to scale up power output much faster on changing slopes, compensating for sudden steep sections.</p>
+                                </div>
+                                <div class="kb-tile">
+                                    <h4>TRAIL Slider (Range: 2.50 – 7.50 W/kg)</h4>
+                                    <p>Controls sustained technical singletrack delivery. Keeping this slider bounded between 5.00 and 5.50 W/kg delivers exceptional technical climbing punch without spinning out or losing tire traction on loose gravel tracks.</p>
+                                </div>
+                                <div class="kb-tile">
+                                    <h4>TURBO Slider (Range: 3.50 – 10.00 W/kg)</h4>
+                                    <p>Manages the emergency acceleration ceiling. Sliding this setting to &ge; 6.00 W/kg activates the High Energy Drain Zone, triggering visual warnings because power draws scale exponentially.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
 
-            <div id="kb-formula" class="knowledge-section bg-gray-900 p-6 rounded-2xl border border-gray-800 shadow-xl space-y-4">
-                <div class="border-b border-gray-800 pb-3">
-                    <h2 class="text-base font-black text-orange-400 uppercase tracking-wide">The Fundamental Formula of Avinox Systems</h2>
-                    <p class="text-xs text-gray-500">The engineering mechanics balancing power delivery</p>
-                </div>
-                <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 font-mono text-xs text-center text-yellow-400 max-w-xl mx-auto my-2 shadow-inner">
-                    Motor Power (W) = (Max Torque [Nm] &times; Cadence [RPM]) / 9.55
-                </div>
-                <p class="text-sm text-gray-300 leading-relaxed">
-                    The DJI engine output relies structurally on your pedaling frequency:
-                </p>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
-                    <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 text-xs text-gray-400 leading-relaxed">
-                        <span class="block font-bold text-red-400 mb-1.5 uppercase tracking-wide">⚠️ Lazy Cadence (52 RPM)</span>
-                        Grinding a tall gear clamps the physical output ceiling to roughly <strong class="text-gray-200">708 W</strong> on the M2S (130 Nm), wasting energy through thermal loss.
-                    </div>
-                    <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 text-xs text-gray-400 leading-relaxed">
-                        <span class="block font-bold text-green-400 mb-1.5 uppercase tracking-wide">✅ Sport Cadence (90 RPM)</span>
-                        Spinning an agile gear unlocks the architecture: up to <strong class="text-gray-200">1225 W</strong> on the M2S. The M2 reaches 1100 W at the same cadence.
-                    </div>
-                </div>
-            </div>
+                    <section id="kb-parameters" class="kb-section card">
+                        <div class="card-header">
+                            <div>
+                                <h2 class="card-title">Parameters Dictionary &amp; Logic Boundaries</h2>
+                                <p class="kb-subtitle">Understanding the core thresholds of the DJI Avinox software</p>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div class="kb-grid">
+                                <div class="kb-tile">
+                                    <h4>Multiplier (W/kg) <span class="kb-tag">Primary Input Variable</span></h4>
+                                    <p>Determines the motor power limits adjusted to the system total mass. Shifting this threshold automatically recalibrates all subsequent watt parameters across every active mode profile.</p>
+                                </div>
+                                <div class="kb-tile">
+                                    <h4>Power Limit (Watts) <span class="kb-tag">Battery Control</span></h4>
+                                    <p>Specifies the continuous electrical power maximum of the system. Restricting this limit (e.g., 150W in ECO) acts as the primary protection layer against premature battery drainage.</p>
+                                </div>
+                                <div class="kb-tile">
+                                    <h4>Max Torque (Nm) <span class="kb-tag">Response Dynamics</span></h4>
+                                    <p>Defines the peak turning force of the motor block. Lower settings offer smooth traction, while values exceeding 80 Nm produce a quick, dirtbike-like engagement on steep trails.</p>
+                                </div>
+                                <div class="kb-tile">
+                                    <h4>Assist Level (Multiplier Factor) <span class="kb-tag">Bio-Mechanical Match</span></h4>
+                                    <p>Determines how many times the motor multiplies your manual leg effort. Highly useful for compensating rider fatigue without changing the absolute power boundaries.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
 
+                    <section id="kb-modes" class="kb-section card">
+                        <div class="card-header">
+                            <div>
+                                <h2 class="card-title">Assist Level: Fixed vs Range</h2>
+                                <p class="kb-subtitle">How each mode behaves, and what is verified against the Avinox app</p>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div class="kb-table-wrap">
+                                <table class="kb-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Mode</th>
+                                            <th>Assist Level</th>
+                                            <th>Behaviour</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                            <td><span class="kb-mode-name"><span class="legend-dot" style="background: var(--mode-eco);"></span>ECO</span></td>
+                                            <td>Fixed (single level)</td>
+                                            <td>Constant assistance, lowest consumption.</td>
+                                        </tr>
+                                        <tr>
+                                            <td><span class="kb-mode-name"><span class="legend-dot" style="background: var(--mode-auto);"></span>AUTO</span></td>
+                                            <td>Range (min–max)</td>
+                                            <td>Varies assistance with resistance. Only mode with Max Acceleration.</td>
+                                        </tr>
+                                        <tr>
+                                            <td><span class="kb-mode-name"><span class="legend-dot" style="background: var(--mode-trail);"></span>TRAIL</span></td>
+                                            <td>Range (min–max)</td>
+                                            <td>Wide range, technical climbing support.</td>
+                                        </tr>
+                                        <tr>
+                                            <td><span class="kb-mode-name"><span class="legend-dot" style="background: var(--mode-turbo);"></span>TURBO</span></td>
+                                            <td>Fixed (single level)</td>
+                                            <td>Constant maximum assistance.</td>
+                                        </tr>
+                                        <tr>
+                                            <td><span class="kb-mode-name"><span class="legend-dot" style="background: var(--mode-custom);"></span>Custom modes</span></td>
+                                            <td>Fixed (single level)</td>
+                                            <td>Modes added with the “+” button in the app do not use ranges.</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div class="kb-grid">
+                                <div class="kb-tile">
+                                    <h4>Boost Duration</h4>
+                                    <p>Adjustable from 1 to 60 seconds, default 30 s. Torque and power in Boost are fixed by the hardware and are not user adjustable. On the M2S the full 1500 W requires the <strong>FP700 (700 Wh)</strong> pack; with any other battery peak Boost output is lower.</p>
+                                </div>
+                                <div class="kb-tile">
+                                    <h4>Battery Packs</h4>
+                                    <p>Integrated: 600 / 700 (<strong>FP700</strong>) / 800 Wh. Removable: <strong>RS600</strong> (600 Wh, also usable as a range extender) and <strong>RS800</strong> (800 Wh).</p>
+                                </div>
+                                <div class="kb-tile">
+                                    <h4>Boost Local Enhancement</h4>
+                                    <p>A switch inside Custom Assist Modes. It is entirely the rider's choice and is <strong>not</strong> used anywhere in this calculator's math.</p>
+                                </div>
+                            </div>
+                            <p class="hint">
+                                <strong>What is verified:</strong> the Fixed/Range behaviour of each mode, the adjustable Boost duration, and the M2 / M2S torque and power figures.<br>
+                                <strong>What is this project's own calibration:</strong> the 15-level support table, the per-mode level bands (ECO 1-7, AUTO 3-11, TRAIL 6-13, TURBO 8-15), the W/kg targets and the range/runtime estimate. These are tuning assumptions, not Avinox specifications.
+                            </p>
+                        </div>
+                    </section>
+
+                    <section id="kb-grid" class="kb-section card">
+                        <div class="card-header">
+                            <div>
+                                <h2 class="card-title">Entry Grid: Why Values Are Rounded</h2>
+                                <p class="kb-subtitle">The Avinox app does not accept arbitrary numbers</p>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <p>
+                                Max Torque and Max Power are <strong>stepped</strong> in the app: you cannot enter any value you like.
+                                This calculator therefore snaps every suggestion to the grid, so what you read here is exactly what you can enter.
+                            </p>
+                            <div class="kb-grid">
+                                <div class="kb-tile">
+                                    <h4>Max Torque — 5 Nm steps</h4>
+                                    <p>Real-world setups use 50, 75, 85 and 105 Nm. Since 75/85/105 are not multiples of 10, the step must be 5 Nm.</p>
+                                </div>
+                                <div class="kb-tile">
+                                    <h4>Max Power — 50 W steps</h4>
+                                    <p>Real-world setups use 400, 500, 600, 700, 750 and 850 W. Since 750/850 are not multiples of 100, the step must be 50 W.</p>
+                                </div>
+                            </div>
+                            <p class="hint">
+                                When rounding moves a value, the card shows the computed figure in brackets next to the one to enter
+                                (e.g. 800 W (computed 811 W)). Torque is always capped by the motor
+                                (110 Nm on the M2, 130 Nm on the M2S).<br>
+                                <strong>To confirm:</strong> the exact steps and any per-mode minimum or maximum are read
+                                off the app itself. If your app uses a different step, it is a single constant to change in <code>src/server.ts</code>.
+                            </p>
+                        </div>
+                    </section>
+
+                    <section id="kb-formula" class="kb-section card">
+                        <div class="card-header">
+                            <div>
+                                <h2 class="card-title">The Fundamental Formula of Avinox Systems</h2>
+                                <p class="kb-subtitle">The engineering mechanics balancing power delivery</p>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div class="kb-formula">
+                                Motor Power (W) = (Max Torque [Nm] &times; Cadence [RPM]) / 9.55
+                            </div>
+                            <p>
+                                The DJI engine output relies structurally on your pedaling frequency:
+                            </p>
+                            <div class="kb-grid">
+                                <div class="kb-tile">
+                                    <h4>Lazy Cadence (52 RPM)</h4>
+                                    <p>Grinding a tall gear clamps the physical output ceiling to roughly <strong>708 W</strong> on the M2S (130 Nm), wasting energy through thermal loss.</p>
+                                </div>
+                                <div class="kb-tile">
+                                    <h4>Sport Cadence (90 RPM)</h4>
+                                    <p>Spinning an agile gear unlocks the architecture: up to <strong>1225 W</strong> on the M2S. The M2 reaches 1100 W at the same cadence.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                </div>
+            </main>
         </div>
 
     </div>
