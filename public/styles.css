@@ -48,7 +48,7 @@
     --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
     --fs-label: 10.5px;  --fs-body: 12.5px;  --fs-title: 12px;  --fs-value: 14px;  --fs-h2: 15px;  --fs-h1: 18px;
 
-    --header-h: 52px;
+    --header-h: 62px;
 }
 
 /* --------------------------------------------------------------------------
@@ -130,9 +130,19 @@ a { color: var(--accent); }
     background: var(--brand);
 }
 
-.brand { display: flex; align-items: center; text-decoration: none; }
-.brand-logo { height: 32px; width: auto; }
-.brand-mark { display: none; height: 28px; width: auto; }
+/* Logo su targhetta antracite: il lime del brand ha contrasto solo su fondo scuro */
+.brand {
+    display: flex;
+    align-items: center;
+    align-self: center;
+    padding: .45rem .6rem;
+    background: var(--ink);
+    border-radius: var(--r);
+    box-shadow: var(--shadow);
+    text-decoration: none;
+}
+.brand-logo { height: 40px; width: auto; }
+.brand-mark { display: none; height: 34px; width: auto; }
 
 .tabs {
     display: flex;
