@@ -816,13 +816,12 @@
             setFileStatus(parsedRoute.source.toUpperCase() + ' parsed — ' +
                 parsedRoute.geometries.length + ' geometry(ies) found.', 'ok');
 
-            // Default to the longest geometry.
-            let bestDistance = -1;
-            selectedGeometries = [0];
-            parsedRoute.geometries.forEach((g, i) => {
-                const d = geometryDistance(g);
-                if (d > bestDistance) { bestDistance = d; selectedGeometries = [i]; }
-            });
+            // Select everything by default. GPX track segments and KML
+            // MultiGeometry parts are normally one ride split by pauses or by
+            // the exporter, so the expected behaviour is "load the whole file".
+            // This is safe because segments are never bridged when measuring:
+            // selecting them all cannot invent distance between them.
+            selectedGeometries = parsedRoute.geometries.map((g, i) => i);
 
             renderGeometryPicker();
             applyRouteSelection();
@@ -836,7 +835,16 @@
                 return;
             }
             box.classList.remove('hidden');
-            box.innerHTML = '<p class="text-xxs font-bold uppercase text-gray-400">Geometries — pick one or more</p>' +
+
+            const total = parsedRoute.geometries.length;
+            box.innerHTML = `
+                <div class="flex items-center justify-between gap-2">
+                    <p id="geomCounter" class="text-xxs font-bold uppercase text-gray-400">${selectedGeometries.length} of ${total} segments selected</p>
+                    <div class="flex gap-1 shrink-0">
+                        <button type="button" id="geomAll" class="text-xxs bg-gray-800 hover:bg-gray-700 text-gray-300 px-2 py-0.5 rounded">All</button>
+                        <button type="button" id="geomNone" class="text-xxs bg-gray-800 hover:bg-gray-700 text-gray-300 px-2 py-0.5 rounded">None</button>
+                    </div>
+                </div>` +
                 parsedRoute.geometries.map((g, i) => `
                     <label class="flex items-center gap-2 text-xxs bg-gray-950 border border-gray-800 rounded-lg p-2 cursor-pointer">
                         <input type="checkbox" data-geom="${i}" ${selectedGeometries.indexOf(i) >= 0 ? 'checked' : ''} class="accent-green-500">
@@ -844,20 +852,47 @@
                         <span class="text-gray-500">${(geometryDistance(g) / 1000).toFixed(1)} km</span>
                     </label>`).join('');
 
+            const updateCounter = () => {
+                const el = document.getElementById('geomCounter');
+                if (el) el.innerText = selectedGeometries.length + ' of ' + total + ' segments selected';
+            };
+
+            const syncCheckboxes = () => {
+                box.querySelectorAll('input[data-geom]').forEach((c) => {
+                    c.checked = selectedGeometries.indexOf(parseInt(c.getAttribute('data-geom'), 10)) >= 0;
+                });
+            };
+
             box.querySelectorAll('input[data-geom]').forEach((cb) => {
                 cb.addEventListener('change', () => {
                     const picked = [];
                     box.querySelectorAll('input[data-geom]').forEach((c) => {
                         if (c.checked) picked.push(parseInt(c.getAttribute('data-geom'), 10));
                     });
-                    // Never allow an empty selection.
+                    // An empty selection cannot be analysed.
                     if (picked.length === 0) {
                         cb.checked = true;
                         picked.push(parseInt(cb.getAttribute('data-geom'), 10));
                     }
                     selectedGeometries = picked;
+                    updateCounter();
                     applyRouteSelection();
                 });
+            });
+
+            document.getElementById('geomAll').addEventListener('click', () => {
+                selectedGeometries = parsedRoute.geometries.map((g, i) => i);
+                syncCheckboxes();
+                updateCounter();
+                applyRouteSelection();
+            });
+
+            document.getElementById('geomNone').addEventListener('click', () => {
+                // Never leave nothing selected: keep the first segment.
+                selectedGeometries = [0];
+                syncCheckboxes();
+                updateCounter();
+                applyRouteSelection();
             });
         }
 

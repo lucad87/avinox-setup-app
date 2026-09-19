@@ -639,7 +639,7 @@
         }
         if (geometries.length > 1) {
             warnings.push('This file contains ' + geometries.length +
-                ' geometries: choose the one you want to analyse.');
+                ' geometries. All are selected by default; uncheck any you do not want to include.');
         }
 
         return { source: 'kml', geometries: geometries, warnings: warnings };
