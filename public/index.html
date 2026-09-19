@@ -52,14 +52,14 @@
                         </div>
                         <form id="calcForm" class="space-y-3.5 text-sm">
                             <div>
-                                <label class="block text-xs font-semibold text-gray-400 mb-1">Motor</label>
+                                <label for="bike" class="block text-xs font-semibold text-gray-400 mb-1">Motor</label>
                                 <select id="bike" class="w-full bg-gray-800 border border-gray-700 rounded-xl p-2.5 text-white font-medium focus:outline-none focus:border-blue-500 transition">
                                     <option value="M2S" selected>Avinox M2S — 130 Nm / 1300 W</option>
                                     <option value="M2">Avinox M2 — 110 Nm / 1100 W</option>
                                 </select>
                             </div>
                             <div>
-                                <label class="block text-xs font-semibold text-gray-400 mb-1">Battery Pack</label>
+                                <label for="batteryWh" class="block text-xs font-semibold text-gray-400 mb-1">Battery Pack</label>
                                 <select id="batteryWh" class="w-full bg-gray-800 border border-gray-700 rounded-xl p-2.5 text-white font-medium focus:outline-none focus:border-blue-500 transition">
                                     <optgroup label="Integrated">
                                         <option value="600">600 Wh — integrated</option>
@@ -74,27 +74,27 @@
                                 <p class="text-xxs text-gray-500 mt-1">The FP700 is the pack that unlocks the M2S's full 1500 W Boost.</p>
                             </div>
                             <div>
-                                <label class="block text-xs font-semibold text-gray-400 mb-1">Boost Duration (s)</label>
+                                <label for="boostDuration" class="block text-xs font-semibold text-gray-400 mb-1">Boost Duration (s)</label>
                                 <input type="number" id="boostDuration" value="30" min="1" max="60" step="1" required class="w-full bg-gray-800 border border-gray-700 rounded-xl p-2.5 text-white focus:outline-none focus:border-blue-500 transition">
                                 <p class="text-xxs text-gray-500 mt-1">Adjustable 1–60 s, default 30 s.</p>
                             </div>
                             <div class="grid grid-cols-2 gap-3">
                                 <div>
-                                    <label class="block text-xs font-semibold text-gray-400 mb-1">Rider Weight (kg)</label>
+                                    <label for="riderWeight" class="block text-xs font-semibold text-gray-400 mb-1">Rider Weight (kg)</label>
                                     <input type="number" id="riderWeight" value="82" required class="w-full bg-gray-800 border border-gray-700 rounded-xl p-2.5 text-white focus:outline-none focus:border-blue-500 transition">
                                 </div>
                                 <div>
-                                    <label class="block text-xs font-semibold text-gray-400 mb-1">Bike Weight (kg)</label>
+                                    <label for="bikeWeight" class="block text-xs font-semibold text-gray-400 mb-1">Bike Weight (kg)</label>
                                     <input type="number" id="bikeWeight" value="23" required class="w-full bg-gray-800 border border-gray-700 rounded-xl p-2.5 text-white focus:outline-none focus:border-blue-500 transition">
                                 </div>
                             </div>
                             <div class="grid grid-cols-2 gap-3">
                                 <div>
-                                    <label class="block text-xs font-semibold text-gray-400 mb-1">Cadence (RPM)</label>
+                                    <label for="cadence" class="block text-xs font-semibold text-gray-400 mb-1">Cadence (RPM)</label>
                                     <input type="number" id="cadence" value="75" required class="w-full bg-gray-800 border border-gray-700 rounded-xl p-2.5 text-white focus:outline-none focus:border-blue-500 transition">
                                 </div>
                                 <div>
-                                    <label class="block text-xs font-semibold text-gray-400 mb-1">Rider Power (W)</label>
+                                    <label for="riderPower" class="block text-xs font-semibold text-gray-400 mb-1">Rider Power (W)</label>
                                     <input type="number" id="riderPower" value="200" required class="w-full bg-gray-800 border border-gray-700 rounded-xl p-2.5 text-white focus:outline-none focus:border-blue-500 transition">
                                 </div>
                             </div>
@@ -129,28 +129,28 @@
                             
                             <div id="advancedSlidersPanel" class="hidden mt-4 p-4 bg-gray-950 rounded-xl border border-gray-800 space-y-4">
                                 <div class="space-y-1">
-                                    <label class="text-xxs font-bold uppercase text-gray-400">ECO Target</label>
+                                    <label for="ecoWkg" class="text-xxs font-bold uppercase text-gray-400">ECO Target</label>
                                     <div class="flex items-center space-x-3">
                                         <input type="number" id="ecoWkg" value="1.36" step="0.01" min="0.75" max="2.00" class="w-14 bg-gray-800 border border-gray-700 rounded-lg p-1 text-center text-xs text-white focus:outline-none">
                                         <input type="range" id="ecoWkgSlider" value="1.36" step="0.01" min="0.75" max="2.00" class="w-full accent-blue-500">
                                     </div>
                                 </div>
                                 <div class="space-y-1">
-                                    <label class="text-xxs font-bold uppercase text-gray-400">AUTO Target</label>
+                                    <label for="autoWkg" class="text-xxs font-bold uppercase text-gray-400">AUTO Target</label>
                                     <div class="flex items-center space-x-3">
                                         <input type="number" id="autoWkg" value="2.73" step="0.01" min="1.50" max="4.50" class="w-14 bg-gray-800 border border-gray-700 rounded-lg p-1 text-center text-xs text-white focus:outline-none">
                                         <input type="range" id="autoWkgSlider" value="2.73" step="0.01" min="1.50" max="4.50" class="w-full accent-blue-500">
                                     </div>
                                 </div>
                                 <div class="space-y-1">
-                                    <label class="text-xxs font-bold uppercase text-gray-400">TRAIL Target</label>
+                                    <label for="trailWkg" class="text-xxs font-bold uppercase text-gray-400">TRAIL Target</label>
                                     <div class="flex items-center space-x-3">
                                         <input type="number" id="trailWkg" value="5.45" step="0.01" min="2.50" max="7.50" class="w-14 bg-gray-800 border border-gray-700 rounded-lg p-1 text-center text-xs text-white focus:outline-none">
                                         <input type="range" id="trailWkgSlider" value="5.45" step="0.01" min="2.50" max="7.50" class="w-full accent-blue-500">
                                     </div>
                                 </div>
                                 <div class="space-y-1">
-                                    <label class="text-xxs font-bold uppercase text-gray-400">TURBO Target</label>
+                                    <label for="turboWkg" class="text-xxs font-bold uppercase text-gray-400">TURBO Target</label>
                                     <div class="flex items-center space-x-3">
                                         <input type="number" id="turboWkg" value="7.72" step="0.01" min="3.50" max="10.00" class="w-14 bg-gray-800 border border-gray-700 rounded-lg p-1 text-center text-xs text-white focus:outline-none">
                                         <input type="range" id="turboWkgSlider" value="7.72" step="0.01" min="3.50" max="10.00" class="w-full accent-blue-500">
@@ -216,18 +216,18 @@
 
                         <div class="space-y-4">
                             <div>
-                                <label class="block text-xs font-semibold text-gray-400 mb-1">Distance (km)</label>
+                                <label for="targetKm" class="block text-xs font-semibold text-gray-400 mb-1">Distance (km)</label>
                                 <input type="number" id="targetKm" value="70" min="1" step="0.1" required class="w-full bg-gray-800 border border-gray-700 rounded-xl p-2.5 text-white focus:outline-none focus:border-green-500 transition">
                             </div>
                             <div>
-                                <label class="block text-xs font-semibold text-gray-400 mb-1">Elevation gain (m)</label>
+                                <label for="targetH_m" class="block text-xs font-semibold text-gray-400 mb-1">Elevation gain (m)</label>
                                 <input type="number" id="targetH_m" value="1500" min="0" step="1" required class="w-full bg-gray-800 border border-gray-700 rounded-xl p-2.5 text-white focus:outline-none focus:border-green-500 transition">
                             </div>
                             <p class="text-xxs text-gray-500">In <strong class="text-gray-400">Route file</strong> mode these are filled from the file and stay editable.</p>
 
                             <div class="grid grid-cols-2 gap-3">
                                 <div>
-                                    <label class="block text-xs font-semibold text-gray-400 mb-1">Surface</label>
+                                    <label for="surface" class="block text-xs font-semibold text-gray-400 mb-1">Surface</label>
                                     <select id="surface" class="w-full bg-gray-800 border border-gray-700 rounded-xl p-2.5 text-white text-xs focus:outline-none focus:border-green-500 transition">
                                         <option value="road">Road</option>
                                         <option value="gravel">Gravel</option>
@@ -236,7 +236,7 @@
                                     </select>
                                 </div>
                                 <div>
-                                    <label class="block text-xs font-semibold text-gray-400 mb-1">Reserve at finish</label>
+                                    <label for="reservePercent" class="block text-xs font-semibold text-gray-400 mb-1">Reserve at finish</label>
                                     <div class="flex items-center gap-2">
                                         <input type="number" id="reservePercent" value="15" min="0" max="50" step="5" class="w-full bg-gray-800 border border-gray-700 rounded-xl p-2.5 text-white focus:outline-none focus:border-green-500 transition">
                                         <span class="text-xs text-gray-500">%</span>
@@ -842,7 +842,7 @@
                     <p id="geomCounter" class="text-xxs font-bold uppercase text-gray-400">${selectedGeometries.length} of ${total} segments selected</p>
                     <div class="flex gap-1 shrink-0">
                         <button type="button" id="geomAll" class="text-xxs bg-gray-800 hover:bg-gray-700 text-gray-300 px-2 py-0.5 rounded">All</button>
-                        <button type="button" id="geomNone" class="text-xxs bg-gray-800 hover:bg-gray-700 text-gray-300 px-2 py-0.5 rounded">None</button>
+                        <button type="button" id="geomNone" class="text-xxs bg-gray-800 hover:bg-gray-700 text-gray-300 px-2 py-0.5 rounded">First only</button>
                     </div>
                 </div>` +
                 parsedRoute.geometries.map((g, i) => `
@@ -888,7 +888,7 @@
             });
 
             document.getElementById('geomNone').addEventListener('click', () => {
-                // Never leave nothing selected: keep the first segment.
+                // Empty selections cannot be analysed: keep only the first segment.
                 selectedGeometries = [0];
                 syncCheckboxes();
                 updateCounter();
@@ -1072,6 +1072,10 @@
             document.getElementById('targetKm').value = s.distanceKm.toFixed(1);
             if (eleOk) {
                 document.getElementById('targetH_m').value = Math.round(s.elevationGainM);
+            } else {
+                // Do not silently reuse the previous route's elevation gain (or
+                // the 1500 m default) when the imported file has no altitude.
+                document.getElementById('targetH_m').value = '';
             }
         }
 
