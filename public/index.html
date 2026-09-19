@@ -7,14 +7,25 @@
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* App shell. Replaces Tailwind's `container` + `max-w-7xl` (1280px),
+           which left a lot of unused space on the sides of a desktop screen.
+           Single place to tune the overall width. */
+        .app-shell {
+            width: 100%;
+            max-width: 1600px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+    </style>
 </head>
 <body class="bg-gray-950 text-gray-100 min-h-screen font-sans overflow-y-scroll">
-    <div class="container mx-auto px-4 py-8 max-w-7xl">
+    <div class="app-shell px-6 py-8">
         
         <div class="border-b border-gray-800 pb-5 mb-8 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
             <div>
                 <h1 class="text-3xl font-black text-white uppercase tracking-wider bg-clip-text text-transparent bg-gradient-to-r from-white to-gray-400">Avinox Ecosystem Panel</h1>
-                <p class="text-sm text-blue-400 font-medium mt-1">Calibrate the bio-mechanical parameters of your DJI Avinox engine and optimize battery range.</p>
+                <p class="text-sm text-blue-400 font-medium mt-1">Calibrate the bio-mechanical parameters of your DJI Avinox M2 / M2S engine and optimize battery range.</p>
             </div>
             <div class="grid grid-cols-1 sm:flex sm:flex-row gap-2 w-full lg:w-auto">
                 <button id="tabCalcBtn" onclick="switchTab('calc')" class="bg-blue-600 text-white font-bold text-xs uppercase tracking-wider py-2.5 px-5 rounded-xl shadow-lg transition focus:outline-none text-center">
@@ -40,12 +51,31 @@
                         </div>
                         <form id="calcForm" class="space-y-3.5 text-sm">
                             <div>
-                                <label class="block text-xs font-semibold text-gray-400 mb-1">Battery Pack Capacity</label>
-                                <select id="batteryWh" class="w-full bg-gray-800 border border-gray-700 rounded-xl p-2.5 text-white font-medium focus:outline-none focus:border-blue-500 transition">
-                                    <option value="600">600 Wh (Compact Light)</option>
-                                    <option value="700">700 Wh (Standard Integrated)</option>
-                                    <option value="800" selected>800 Wh (Extended Range Pack)</option>
+                                <label class="block text-xs font-semibold text-gray-400 mb-1">Motor</label>
+                                <select id="bike" class="w-full bg-gray-800 border border-gray-700 rounded-xl p-2.5 text-white font-medium focus:outline-none focus:border-blue-500 transition">
+                                    <option value="M2S" selected>Avinox M2S — 130 Nm / 1300 W</option>
+                                    <option value="M2">Avinox M2 — 110 Nm / 1100 W</option>
                                 </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-gray-400 mb-1">Battery Pack</label>
+                                <select id="batteryWh" class="w-full bg-gray-800 border border-gray-700 rounded-xl p-2.5 text-white font-medium focus:outline-none focus:border-blue-500 transition">
+                                    <optgroup label="Integrated">
+                                        <option value="600">600 Wh — integrated</option>
+                                        <option value="700">700 Wh — FP700</option>
+                                        <option value="800" selected>800 Wh — integrated</option>
+                                    </optgroup>
+                                    <optgroup label="Removable">
+                                        <option value="600">600 Wh — RS600 (also a range extender)</option>
+                                        <option value="800">800 Wh — RS800</option>
+                                    </optgroup>
+                                </select>
+                                <p class="text-xxs text-gray-500 mt-1">The FP700 is the pack that unlocks the M2S's full 1500 W Boost.</p>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-gray-400 mb-1">Boost Duration (s)</label>
+                                <input type="number" id="boostDuration" value="30" min="1" max="60" step="1" required class="w-full bg-gray-800 border border-gray-700 rounded-xl p-2.5 text-white focus:outline-none focus:border-blue-500 transition">
+                                <p class="text-xxs text-gray-500 mt-1">Adjustable 1–60 s, default 30 s.</p>
                             </div>
                             <div class="grid grid-cols-2 gap-3">
                                 <div>
@@ -144,8 +174,11 @@
                             </div>
                             <span id="sysWeight" class="bg-blue-950 text-blue-300 border border-blue-900 px-3 py-1 rounded-lg text-xs font-bold">Total Weight: -- kg</span>
                         </div>
+                        <div id="calcWarnings"></div>
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4" id="resultsGrid"></div>
                     </div>
+
+                    <div id="boostCard"></div>
 
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-6 bg-gray-900 p-6 rounded-2xl border border-gray-800 shadow-xl">
                         <div class="h-64 flex flex-col">
@@ -229,7 +262,7 @@
                     <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 space-y-2">
                         <span class="text-blue-500 font-black text-sm">01.</span>
                         <h3 class="font-bold text-white uppercase tracking-wider">Input Data</h3>
-                        <p class="text-gray-400 leading-relaxed">Select your structural battery capacity size and enter your total system weight including packed equipment.</p>
+                        <p class="text-gray-400 leading-relaxed">Pick your battery pack — integrated (600 / 700 / 800 Wh) or removable (RS600 / RS800) — and enter your total system weight including packed equipment.</p>
                     </div>
                     <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 space-y-2">
                         <span class="text-green-500 font-black text-sm">02.</span>
@@ -304,6 +337,97 @@
 
             <div class="bg-gray-900 p-6 rounded-2xl border border-gray-800 shadow-xl space-y-4">
                 <div class="border-b border-gray-800 pb-3">
+                    <h2 class="text-base font-black text-teal-400 uppercase tracking-wider">🔒 Assist Level: Fixed vs Range</h2>
+                    <p class="text-xs text-gray-500">How each mode behaves, and what is verified against the Avinox app</p>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-xs border border-gray-800">
+                        <thead class="bg-gray-950 text-gray-300 uppercase tracking-wider">
+                            <tr>
+                                <th class="p-2 border border-gray-800">Mode</th>
+                                <th class="p-2 border border-gray-800">Assist Level</th>
+                                <th class="p-2 border border-gray-800">Behaviour</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-800 text-gray-400">
+                            <tr>
+                                <td class="p-2 border border-gray-800 font-bold text-green-400">ECO</td>
+                                <td class="p-2 border border-gray-800">Fixed (single level)</td>
+                                <td class="p-2 border border-gray-800">Constant assistance, lowest consumption.</td>
+                            </tr>
+                            <tr class="bg-gray-950">
+                                <td class="p-2 border border-gray-800 font-bold text-blue-400">AUTO</td>
+                                <td class="p-2 border border-gray-800">Range (min–max)</td>
+                                <td class="p-2 border border-gray-800">Varies assistance with resistance. Only mode with Max Acceleration.</td>
+                            </tr>
+                            <tr>
+                                <td class="p-2 border border-gray-800 font-bold text-yellow-500">TRAIL</td>
+                                <td class="p-2 border border-gray-800">Range (min–max)</td>
+                                <td class="p-2 border border-gray-800">Wide range, technical climbing support.</td>
+                            </tr>
+                            <tr class="bg-gray-950">
+                                <td class="p-2 border border-gray-800 font-bold text-red-400">TURBO</td>
+                                <td class="p-2 border border-gray-800">Fixed (single level)</td>
+                                <td class="p-2 border border-gray-800">Constant maximum assistance.</td>
+                            </tr>
+                            <tr>
+                                <td class="p-2 border border-gray-800 font-bold text-purple-400">Custom modes</td>
+                                <td class="p-2 border border-gray-800">Fixed (single level)</td>
+                                <td class="p-2 border border-gray-800">Modes added with the “+” button in the app do not use ranges.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                    <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 space-y-1">
+                        <span class="font-bold text-purple-400 uppercase block mb-1">Boost Duration</span>
+                        <p class="text-gray-400 leading-relaxed">Adjustable from 1 to 60 seconds, default 30 s. Torque and power in Boost are fixed by the hardware and are not user adjustable. On the M2S the full 1500 W requires the <strong class="text-gray-300">FP700 (700 Wh)</strong> pack; with any other battery peak Boost output is lower.</p>
+                    </div>
+                    <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 space-y-1">
+                        <span class="font-bold text-teal-400 uppercase block mb-1">Battery Packs</span>
+                        <p class="text-gray-400 leading-relaxed">Integrated: 600 / 700 (<strong class="text-gray-300">FP700</strong>) / 800 Wh. Removable: <strong class="text-gray-300">RS600</strong> (600 Wh, also usable as a range extender) and <strong class="text-gray-300">RS800</strong> (800 Wh).</p>
+                    </div>
+                    <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 space-y-1">
+                        <span class="font-bold text-gray-300 uppercase block mb-1">Boost Local Enhancement</span>
+                        <p class="text-gray-400 leading-relaxed">A switch inside Custom Assist Modes. It is entirely the rider's choice and is <strong class="text-gray-300">not</strong> used anywhere in this calculator's math.</p>
+                    </div>
+                </div>
+                <p class="text-xxs text-gray-500 leading-relaxed">
+                    <strong class="text-gray-400">What is verified:</strong> the Fixed/Range behaviour of each mode, the adjustable Boost duration, and the M2 / M2S torque and power figures.<br>
+                    <strong class="text-gray-400">What is this project's own calibration:</strong> the 15-level support table, the per-mode level bands (ECO 1-7, AUTO 3-11, TRAIL 6-13, TURBO 8-15), the W/kg targets and the range/runtime estimate. These are tuning assumptions, not Avinox specifications.
+                </p>
+            </div>
+
+            <div class="bg-gray-900 p-6 rounded-2xl border border-gray-800 shadow-xl space-y-4">
+                <div class="border-b border-gray-800 pb-3">
+                    <h2 class="text-base font-black text-teal-400 uppercase tracking-wider">🎯 Entry Grid: Why Values Are Rounded</h2>
+                    <p class="text-xs text-gray-500">The Avinox app does not accept arbitrary numbers</p>
+                </div>
+                <p class="text-sm text-gray-300 leading-relaxed">
+                    Max Torque and Max Power are <strong>stepped</strong> in the app: you cannot enter any value you like.
+                    This calculator therefore snaps every suggestion to the grid, so what you read here is exactly what you can enter.
+                </p>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                    <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 space-y-1">
+                        <span class="font-bold text-blue-400 uppercase block mb-1">Max Torque — 5 Nm steps</span>
+                        <p class="text-gray-400 leading-relaxed">Real-world setups use 50, 75, 85 and 105 Nm. Since 75/85/105 are not multiples of 10, the step must be 5 Nm.</p>
+                    </div>
+                    <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 space-y-1">
+                        <span class="font-bold text-green-400 uppercase block mb-1">Max Power — 50 W steps</span>
+                        <p class="text-gray-400 leading-relaxed">Real-world setups use 400, 500, 600, 700, 750 and 850 W. Since 750/850 are not multiples of 100, the step must be 50 W.</p>
+                    </div>
+                </div>
+                <p class="text-xxs text-gray-500 leading-relaxed">
+                    When rounding moves a value, the card shows the computed figure in brackets next to the one to enter
+                    (e.g. <span class="text-gray-400">800 W (computed 811 W)</span>). Torque is always capped by the motor
+                    (110 Nm on the M2, 130 Nm on the M2S).<br>
+                    <strong class="text-gray-400">To confirm:</strong> the exact steps and any per-mode minimum or maximum are read
+                    off the app itself. If your app uses a different step, it is a single constant to change in <code class="text-gray-300">src/server.ts</code>.
+                </p>
+            </div>
+
+            <div class="bg-gray-900 p-6 rounded-2xl border border-gray-800 shadow-xl space-y-4">
+                <div class="border-b border-gray-800 pb-3">
                     <h2 class="text-base font-black text-orange-400 uppercase tracking-wide">The Fundamental Formula of Avinox Systems</h2>
                     <p class="text-xs text-gray-500">The engineering mechanics balancing power delivery</p>
                 </div>
@@ -316,11 +440,11 @@
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
                     <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 text-xs text-gray-400 leading-relaxed">
                         <span class="block font-bold text-red-400 mb-1.5 uppercase tracking-wide">⚠️ Lazy Cadence (52 RPM)</span>
-                        If you grind a tall gear, the physical output ceiling is electronically clamped at roughly 572 Watts, wasting battery through thermal loss.
+                        Grinding a tall gear clamps the physical output ceiling to roughly <strong class="text-gray-200">708 W</strong> on the M2S (130 Nm), wasting energy through thermal loss.
                     </div>
                     <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 text-xs text-gray-400 leading-relaxed">
                         <span class="block font-bold text-green-400 mb-1.5 uppercase tracking-wide">✅ Sport Cadence (90 RPM)</span>
-                        Spinning an agile gear fully unlocks the architecture's potential, unleashing up to 990 Watts of fluid, uninterrupted electrical support.
+                        Spinning an agile gear unlocks the architecture: up to <strong class="text-gray-200">1225 W</strong> on the M2S. The M2 reaches 1100 W at the same cadence.
                     </div>
                 </div>
             </div>
@@ -435,7 +559,9 @@
             document.getElementById('rangeChartTitle').innerText = 'Estimated Max Range (km) • Battery ' + selectedBattery + 'Wh';
 
             const data = {
+                bike: document.getElementById('bike').value,
                 batteryWh: selectedBattery,
+                boostDuration: document.getElementById('boostDuration').value,
                 riderWeight: document.getElementById('riderWeight').value,
                 bikeWeight: document.getElementById('bikeWeight').value,
                 cadence: document.getElementById('cadence').value,
@@ -463,23 +589,65 @@
                 modes.forEach(m => {
                     const isHighDrain = m.val >= 6.0;
                     const badgeClass = isHighDrain ? 'bg-red-600 text-white animate-pulse' : `bg-gray-950 text-${m.color}-400 border border-gray-800`;
+                    const typeBadge = m.data.type === 'range'
+                        ? '<span class="text-xxs bg-gray-950 text-gray-300 px-2 py-0.5 rounded-md uppercase font-bold border border-gray-800">Range</span>'
+                        : '<span class="text-xxs bg-gray-950 text-gray-300 px-2 py-0.5 rounded-md uppercase font-bold border border-gray-800">Fixed</span>';
+                    const accelRow = m.data.maxAccel !== null && m.data.maxAccel !== undefined
+                        ? `<p class="text-gray-300 flex justify-between"><span class="text-gray-400 font-bold">Max Acceleration:</span> <span>${m.data.maxAccel}</span></p>`
+                        : '';
+                    const warnBlock = (m.data.warnings && m.data.warnings.length)
+                        ? `<p class="text-xxs text-red-300 bg-red-950 border border-red-900 rounded-lg p-2 mt-2">${m.data.warnings.join(' ')}</p>`
+                        : '';
+                    const powerHint = (m.data.idealPower !== m.data.maxPower)
+                        ? ` <span class="text-gray-500 text-xxs">(computed ${m.data.idealPower} W)</span>` : '';
+                    const torqueHint = (m.data.idealTorque !== m.data.maxTorque)
+                        ? ` <span class="text-gray-500 text-xxs">(computed ${m.data.idealTorque} Nm)</span>` : '';
                     grid.innerHTML += `
                         <div class="bg-gray-800 p-4 rounded-xl border ${isHighDrain ? 'border-red-500' : 'border-gray-700'} flex flex-col justify-between text-xs shadow-md">
                             <div>
                                 <div class="flex justify-between items-center mb-2.5">
                                     <span class="font-black text-sm text-white tracking-wide">${m.name}</span>
-                                    <span class="text-xs font-bold uppercase tracking-wider px-2 py-0.5 rounded-md ${badgeClass}">${m.data.wkg} W/kg</span>
+                                    <div class="flex items-center gap-1">
+                                        ${typeBadge}
+                                        <span class="text-xs font-bold uppercase tracking-wider px-2 py-0.5 rounded-md ${badgeClass}">${m.data.wkg} W/kg</span>
+                                    </div>
                                 </div>
                                 <div class="space-y-1.5 mb-2">
                                     <p class="text-gray-300 flex justify-between"><span class="text-gray-400 font-bold">Assist Bound:</span> <span>${m.data.level}</span></p>
-                                    <p class="text-gray-300 flex justify-between"><span class="text-gray-400 font-bold">Power Limit:</span> <span>${m.data.watts}</span></p>
-                                    <p class="text-gray-300 flex justify-between"><span class="text-gray-400 font-bold">Max Torque:</span> <span>${m.data.torque}</span></p>
+                                    <p class="text-gray-300 flex justify-between"><span class="text-gray-400 font-bold">Power Limit:</span> <span>${m.data.watts}${powerHint}</span></p>
+                                    <p class="text-gray-300 flex justify-between"><span class="text-gray-400 font-bold">Max Torque:</span> <span>${m.data.torque}${torqueHint}</span></p>
+                                    <p class="text-gray-300 flex justify-between"><span class="text-gray-400 font-bold">Max Overrun:</span> <span>${m.data.maxOverrun}</span></p>
+                                    <p class="text-gray-300 flex justify-between"><span class="text-gray-400 font-bold">Assist Start:</span> <span>${m.data.assistStart}</span></p>
+                                    <p class="text-gray-300 flex justify-between"><span class="text-gray-400 font-bold">Continued Assist:</span> <span>${m.data.continuedAssist}</span></p>
+                                    ${accelRow}
                                 </div>
+                                ${warnBlock}
                             </div>
                             <p class="text-xxs text-gray-500 border-t border-gray-700 pt-1.5 italic mt-1">${m.desc}</p>
                         </div>
                     `;
                 });
+
+                const warnBox = document.getElementById('calcWarnings');
+                warnBox.innerHTML = (res.warnings && res.warnings.length)
+                    ? res.warnings.map(w => `<div class="bg-yellow-950 border border-yellow-800 text-yellow-200 text-xs rounded-xl p-3 mb-4">⚠️ ${w}</div>`).join('')
+                    : '';
+
+                const b = res.boost;
+                document.getElementById('boostCard').innerHTML = `
+                    <div class="bg-gray-900 p-5 rounded-2xl border border-gray-800 shadow-xl text-xs">
+                        <div class="flex justify-between items-center mb-3 border-b border-gray-800 pb-2">
+                            <span class="font-black text-sm text-purple-400 tracking-wide">BOOST</span>
+                            <span class="text-xxs bg-gray-950 text-gray-300 px-2 py-0.5 rounded-md uppercase font-bold border border-gray-800">Torque / power fixed · duration adjustable</span>
+                        </div>
+                        <div class="grid grid-cols-3 gap-3">
+                            <div><span class="block text-gray-400 text-xxs uppercase font-bold">Torque</span><span class="font-bold text-gray-100">${b.torque} Nm</span></div>
+                            <div><span class="block text-gray-400 text-xxs uppercase font-bold">Power</span><span class="font-bold text-gray-100">${b.power} W${b.fullPowerAvailable ? '' : ' (FP700 only)'}</span></div>
+                            <div><span class="block text-gray-400 text-xxs uppercase font-bold">Duration</span><span class="font-bold text-gray-100">${b.duration} s</span></div>
+                        </div>
+                        <p class="text-xxs text-gray-500 mt-2">Adjustable ${b.durationMin}–${b.durationMax} s (default ${b.durationDefault} s).</p>
+                        ${b.note ? `<p class="text-xxs text-gray-500 mt-1">${b.note}</p>` : ''}
+                    </div>`;
 
                 initCharts(
                     [res.eco.range, res.auto.range, res.trail.range, res.turbo.range],
@@ -494,6 +662,7 @@
             e.preventDefault();
             const selectedBattery = document.getElementById('batteryWh').value;
             const data = {
+                bike: document.getElementById('bike').value,
                 batteryWh: selectedBattery,
                 riderWeight: document.getElementById('riderWeight').value,
                 bikeWeight: document.getElementById('bikeWeight').value,
