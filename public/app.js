@@ -821,7 +821,8 @@ window.addEventListener('DOMContentLoaded', updateSetup);
     const root = document.documentElement;
     const apply = (theme) => {
         root.setAttribute('data-theme', theme);
-        btn.innerText = theme === 'dark' ? '☼ Light' : '☾ Dark';
+        btn.querySelector('.tt-icon').textContent = theme === 'dark' ? '☼' : '☾';
+        btn.querySelector('.tt-label').textContent = theme === 'dark' ? 'Light' : 'Dark';
         btn.setAttribute('aria-label', theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode');
         const meta = document.querySelector('meta[name="theme-color"]');
         if (meta) meta.setAttribute('content', theme === 'dark' ? '#1A1E23' : '#F2F0E8');

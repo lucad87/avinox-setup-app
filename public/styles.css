@@ -880,8 +880,17 @@ a { color: var(--accent); }
     .btn, .segmented > button { min-height: 40px; }
     .preset { min-height: 40px; }
 
-    .kb-nav { flex-direction: row; flex-wrap: wrap; gap: .15rem .2rem; }
-    .kb-nav a { flex: 0 0 auto; white-space: nowrap; padding: .35rem .5rem; font-size: 11.5px; }
+    .boost-stats { grid-template-columns: 1fr; gap: .45rem; }
+    .boost-stats .stat {
+        flex-direction: row;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: .75rem;
+    }
+    .kb-nav { display: grid; grid-template-columns: repeat(3, 1fr); gap: .3rem; }
+    .kb-nav a { text-align: center; white-space: nowrap; padding: .4rem .3rem; font-size: 11.5px; }
+    .theme-toggle { min-height: 0; padding: .3rem .5rem; }
+    .theme-toggle .tt-label { display: none; }
 }
 
 @media (max-width: 639px) {
