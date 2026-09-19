@@ -1080,21 +1080,19 @@
                 return;
             }
 
-            const labels = [];
-            const values = [];
+            const points = [];
             let cumulative = 0;
 
             chosen.forEach((geom) => {
                 geom.points.forEach((p, i) => {
                     if (i > 0) cumulative += AvinoxRoute.haversine(geom.points[i - 1], p);
                     if (Number.isFinite(p.ele)) {
-                        labels.push((cumulative / 1000).toFixed(2));
-                        values.push(p.ele);
+                        points.push({ x: Math.round(cumulative) / 1000, y: p.ele });
                     }
                 });
             });
 
-            if (values.length < 2) {
+            if (points.length < 2) {
                 panel.classList.add('hidden');
                 return;
             }
@@ -1106,9 +1104,8 @@
             elevationChartInstance = new Chart(ctx, {
                 type: 'line',
                 data: {
-                    labels: labels,
                     datasets: [{
-                        data: values,
+                        data: points,
                         borderColor: '#10B981',
                         backgroundColor: 'rgba(16, 185, 129, 0.15)',
                         borderWidth: 1.5,
@@ -1120,21 +1117,26 @@
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
+                    parsing: false,
                     plugins: {
                         legend: { display: false },
                         tooltip: {
                             callbacks: {
-                                title: (items) => items[0].label + ' km',
+                                title: (items) => items[0].parsed.x.toFixed(2) + ' km',
                                 label: (item) => Math.round(item.parsed.y) + ' m'
                             }
                         }
                     },
                     scales: {
                         x: {
+                            // A linear distance axis. A category axis with a tick
+                            // callback mislabelled the ticks, because the callback
+                            // index is the tick position, not the data index.
+                            type: 'linear',
                             grid: { color: '#1F2937' },
                             ticks: {
                                 color: '#6B7280', font: { size: 9 }, maxTicksLimit: 8,
-                                callback: function (value, index) { return labels[index] + ' km'; }
+                                callback: (value) => (Math.round(value * 10) / 10) + ' km'
                             }
                         },
                         y: {
