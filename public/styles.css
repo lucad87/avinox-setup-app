@@ -184,6 +184,8 @@ a { color: var(--accent); }
     background: var(--brand);
 }
 
+.theme-toggle { flex: 0 0 auto; margin-left: .25rem; white-space: nowrap; }
+
 .sidebar {
     position: sticky;
     top: var(--header-h);
@@ -849,6 +851,7 @@ a { color: var(--accent); }
 
     .brand-logo { display: none; }
     .brand-mark { display: block; }
+    .theme-toggle { align-self: flex-end; margin: .35rem 0 0; }
     .app-header { flex-direction: column; align-items: stretch; gap: 0; padding: .5rem .75rem 0; }
     .tabs { align-self: stretch; }
 
@@ -888,3 +891,71 @@ a { color: var(--accent); }
     *, *::before, *::after,
     .btn, .tab, .card, .preset, .input, .select, .dropzone, .mini-btn, .mode-card { transition: none; }
 }
+
+/* ==========================================================================
+   Variante dark (§9 del piano) — attivata da html[data-theme="dark"],
+   scelta dal toggle nell'header, persistita in localStorage.
+   ========================================================================== */
+
+html[data-theme="dark"] {
+    /* superfici */
+    --bg: #1A1E23;
+    --surface: #232A31;
+    --surface-2: #2B333B;
+    --surface-3: #353F49;
+    --border: #3A434D;
+    --border-strong: #4C5763;
+
+    /* testo */
+    --ink: #E9EBEE;
+    --text: #E2E6E9;
+    --muted: #A3ACB6;
+    --faint: #7E8792;
+
+    /* brand */
+    --brand: #5AF822;
+    --accent: #8BDB3E;
+    --accent-hover: #9FE65A;
+    --accent-soft: #2C3A21;
+
+    /* semantica */
+    --ok: #8BDB3E;
+    --warn: #F08033;  --warn-bg: #3A2A1C;  --warn-border: #7E5028;  --warn-text: #F5BB90;
+    --danger: #E8654C; --danger-bg: #3C231E; --danger-border: #803E30; --danger-text: #F5AA98;
+
+    /* modalità */
+    --mode-eco: #6FBF72;
+    --mode-auto: #6BA3DC;
+    --mode-trail: #E09A3E;
+    --mode-turbo: #E06050;
+    --mode-custom: #A98BD6;
+
+    /* forma */
+    --shadow: 0 2px 9px rgba(0, 0, 0, .35);
+    --shadow-lg: 0 18px 50px rgba(0, 0, 0, .5);
+    --focus: 0 0 0 3px rgba(139, 219, 62, .22);
+}
+
+::selection { background: var(--accent-soft); }
+html[data-theme="dark"] ::selection { background: #35452A; }
+
+/* Su accent chiaro il testo del bottone primario va scuro */
+html[data-theme="dark"] .btn-primary { color: #14120F; }
+
+/* Il gradiente del footer sidebar chiude sul fondo chiaro: variante dark */
+html[data-theme="dark"] .sidebar-footer {
+    background: linear-gradient(to top, var(--bg) 78%, rgba(26, 30, 35, 0));
+}
+
+/* I badge di modalità usano tinte trasparenti al posto dei pastelli chiari */
+html[data-theme="dark"] .badge-ok,
+html[data-theme="dark"] .badge-mode-eco { background: rgba(111, 191, 114, .16); border-color: rgba(111, 191, 114, .45); }
+html[data-theme="dark"] .badge-mode-auto { background: rgba(107, 163, 220, .16); border-color: rgba(107, 163, 220, .45); }
+html[data-theme="dark"] .badge-mode-trail { background: rgba(224, 154, 62, .16); border-color: rgba(224, 154, 62, .45); }
+html[data-theme="dark"] .badge-mode-turbo { background: rgba(224, 96, 80, .16); border-color: rgba(224, 96, 80, .45); }
+html[data-theme="dark"] .badge-danger { background: rgba(232, 101, 76, .16); border-color: rgba(232, 101, 76, .5); }
+html[data-theme="dark"] .badge-warn { background: rgba(240, 128, 51, .16); border-color: rgba(240, 128, 51, .5); }
+
+/* Logo: sul fondo scuro il drop-shadow antracite non serve più */
+html[data-theme="dark"] .brand-logo,
+html[data-theme="dark"] .brand-mark { filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .55)); }

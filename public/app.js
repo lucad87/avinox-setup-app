@@ -814,6 +814,29 @@ document.getElementById('missionForm').addEventListener('submit', async (e) => {
 
 window.addEventListener('DOMContentLoaded', updateSetup);
 
+/* Theme toggle (dark variant): persists the choice and re-renders the
+   charts, which read their colours from the CSS custom properties. */
+(function initThemeToggle() {
+    const btn = document.getElementById('themeToggle');
+    if (!btn) return;
+    const root = document.documentElement;
+    const apply = (theme) => {
+        root.setAttribute('data-theme', theme);
+        btn.innerText = theme === 'dark' ? '☼ Light' : '☾ Dark';
+        btn.setAttribute('aria-label', theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode');
+        const meta = document.querySelector('meta[name="theme-color"]');
+        if (meta) meta.setAttribute('content', theme === 'dark' ? '#1A1E23' : '#F2F0E8');
+    };
+    const stored = localStorage.getItem('avinox-theme');
+    apply(stored === 'dark' || stored === 'light' ? stored : root.getAttribute('data-theme') || 'light');
+    btn.addEventListener('click', () => {
+        const next = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+        try { localStorage.setItem('avinox-theme', next); } catch (e) { /* ignore */ }
+        apply(next);
+        if (typeof updateSetup === 'function') updateSetup();
+    });
+})();
+
 /* Route Simulator chip (E1): shows which motor/battery the mission analysis
    inherits from the Engine Tuner form. Read-only — no effect on the math. */
 (function initSetupChip() {
