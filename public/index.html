@@ -109,6 +109,11 @@
                                 <button type="submit" class="hidden">Submit</button>
                             </form>
                         </div>
+                        <div class="card-actions">
+                            <button onclick="updateSetup()" class="btn btn-primary btn-block">
+                                Generate Custom Setup
+                            </button>
+                        </div>
                     </section>
 
                     <section class="card">
@@ -168,11 +173,6 @@
                         </div>
                     </section>
 
-                </div>
-                <div class="sidebar-footer">
-                    <button onclick="updateSetup()" class="btn btn-primary btn-block">
-                        Generate Custom Setup
-                    </button>
                 </div>
             </aside>
 
@@ -270,17 +270,24 @@
                                     <input type="file" id="routeFileInput" accept=".gpx,.kml,application/gpx+xml,application/vnd.google-earth.kml+xml" class="hidden">
                                     <p class="hint">Parsed on your device — coordinates are never uploaded.</p>
                                     <div id="fileStatus" class="file-status" aria-live="polite"></div>
-                                    <div id="geometryPicker" class="hidden track-list"></div>
+                                    <details id="geometryPanel" class="collapsible">
+                                        <summary>
+                                            <span class="collapsible-title">Track segments</span>
+                                            <span id="geomCounter" class="hint"></span>
+                                            <span class="collapsible-chevron">▸</span>
+                                        </summary>
+                                        <div id="geometryPicker" class="hidden track-list"></div>
+                                    </details>
                                     <div id="fileSummary" class="hidden"></div>
                                 </div>
                             </form>
                         </div>
+                        <div class="card-actions">
+                            <button type="submit" form="missionForm" class="btn btn-primary btn-block">
+                                Analyze Strategy
+                            </button>
+                        </div>
                     </section>
-                </div>
-                <div class="sidebar-footer">
-                    <button type="submit" form="missionForm" class="btn btn-primary btn-block">
-                        Analyze Strategy
-                    </button>
                 </div>
             </aside>
 
