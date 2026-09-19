@@ -722,7 +722,7 @@ a { color: var(--accent); }
 
 /* Toggle drawer slider avanzati */
 .advanced-toggle { align-self: flex-start; }
-.advanced-panel {
+.advanced-panel:not(.hidden) {
     display: flex;
     flex-direction: column;
     gap: .8rem;
@@ -731,7 +731,6 @@ a { color: var(--accent); }
     border: 1px solid var(--border);
     border-radius: var(--r);
 }
-.advanced-panel:not(.hidden) { display: flex; }
 
 /* Riga numero + slider */
 .slider-row { display: flex; align-items: center; gap: .6rem; }
@@ -783,7 +782,7 @@ a { color: var(--accent); }
 .pie-wrap canvas { position: absolute; inset: 0; }
 
 /* Sezioni del workspace */
-.workspace-section { display: flex; flex-direction: column; gap: .5rem; }
+.workspace-section:not(.hidden) { display: flex; flex-direction: column; gap: .5rem; }
 
 /* Knowledge Base */
 .kb-grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
