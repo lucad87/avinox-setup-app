@@ -6,42 +6,42 @@
 
 :root {
     /* superfici */
-    --bg: #FAF9F4;            /* pagina */
+    --bg: #F2F0E8;            /* pagina */
     --surface: #FFFFFF;       /* card */
-    --surface-2: #F5F3EC;     /* card nidificate, thead, input bg alternativo */
-    --surface-3: #EDE9DE;     /* track barre, hover */
-    --border: #E0DBCE;
-    --border-strong: #CFC7B9;
+    --surface-2: #ECE9DE;     /* card nidificate, thead, input bg alternativo */
+    --surface-3: #E0DBCB;     /* track barre, hover */
+    --border: #D5CEBB;
+    --border-strong: #C2B79F;
 
     /* testo */
-    --ink: #283038;           /* titoli, header — antracite del logo */
-    --text: #1C1A18;
-    --muted: #736554;
-    --faint: #9C9284;
+    --ink: #1E252D;           /* titoli, header — antracite del logo */
+    --text: #14120F;
+    --muted: #5C5041;
+    --faint: #857A6A;
 
     /* brand */
     --brand: #5AF822;         /* SOLO identità: linea header, tab attivo, ring focus, fill chart */
-    --accent: #2F7D0E;        /* bottoni, link, stati attivi (AA su --bg) */
-    --accent-hover: #3B9A14;
-    --accent-soft: #EAF7E2;   /* sfondo selezionato / badge */
+    --accent: #276A0B;        /* bottoni, link, stati attivi (AA su --bg) */
+    --accent-hover: #34820F;
+    --accent-soft: #E0F0D3;   /* sfondo selezionato / badge */
 
     /* semantica */
-    --ok: #2F7D0E;
-    --warn: #EE6B17;  --warn-bg: #FCE1D1;  --warn-border: #F4B58D;  --warn-text: #8A3E0E;
-    --danger: #E4462D; --danger-bg: #FBE2DC; --danger-border: #F2A99B; --danger-text: #8E2A1A;
+    --ok: #276A0B;
+    --warn: #E05E10;  --warn-bg: #FADCC8;  --warn-border: #EDA468;  --warn-text: #7A3609;
+    --danger: #DC3E25; --danger-bg: #F8DAD2; --danger-border: #EC9B8A; --danger-text: #7F2415;
 
     /* modalità (desaturate, usate come stripe/dot, non come colore titolo) */
-    --mode-eco: #3E8E41;
-    --mode-auto: #2B6CB0;
-    --mode-trail: #C77700;
-    --mode-turbo: #C0392B;
-    --mode-custom: #6B4FA3;   /* BOOST e custom route modes */
+    --mode-eco: #337E36;
+    --mode-auto: #235E9C;
+    --mode-trail: #B26800;
+    --mode-turbo: #AE3124;
+    --mode-custom: #5C4290;   /* BOOST e custom route modes */
 
     /* forma */
     --r-sm: 7px;  --r: 10px;  --r-lg: 13px;
-    --shadow: 0 2px 9px rgba(58, 48, 34, .06);
-    --shadow-lg: 0 18px 50px rgba(58, 48, 34, .18);
-    --focus: 0 0 0 3px rgba(47, 125, 14, .15);
+    --shadow: 0 2px 9px rgba(58, 48, 34, .09);
+    --shadow-lg: 0 18px 50px rgba(58, 48, 34, .22);
+    --focus: 0 0 0 3px rgba(39, 106, 11, .18);
 
     /* tipografia */
     --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Liberation Sans", sans-serif;
@@ -192,7 +192,7 @@ a { color: var(--accent); }
     bottom: 0;
     z-index: 10;
     padding: .75rem .85rem;
-    background: linear-gradient(to top, var(--bg) 78%, rgba(250, 249, 244, 0));
+    background: linear-gradient(to top, var(--bg) 78%, rgba(242, 240, 232, 0));
 }
 
 .workspace { min-width: 0; }
@@ -480,13 +480,13 @@ a { color: var(--accent); }
     font-variant-numeric: tabular-nums;
 }
 .badge-soft { background: var(--surface-2); color: var(--muted); }
-.badge-ok { background: var(--accent-soft); border-color: #CBE8B8; color: var(--ok); }
+.badge-ok { background: var(--accent-soft); border-color: #BCD9A6; color: var(--ok); }
 .badge-warn { background: var(--warn-bg); border-color: var(--warn-border); color: var(--warn-text); }
 .badge-danger { background: var(--danger-bg); border-color: var(--danger-border); color: var(--danger-text); }
-.badge-mode-eco { background: var(--accent-soft); border-color: #CBE8B8; color: var(--mode-eco); }
-.badge-mode-auto { background: #E3ECF7; border-color: #C2D4EC; color: var(--mode-auto); }
-.badge-mode-trail { background: #FBEEDC; border-color: #F0D4A8; color: var(--mode-trail); }
-.badge-mode-turbo { background: #F9E4E0; border-color: #EFC0B8; color: var(--mode-turbo); }
+.badge-mode-eco { background: var(--accent-soft); border-color: #BCD9A6; color: var(--mode-eco); }
+.badge-mode-auto { background: #DCE7F5; border-color: #AEC7E4; color: var(--mode-auto); }
+.badge-mode-trail { background: #F8E6CE; border-color: #E8C48F; color: var(--mode-trail); }
+.badge-mode-turbo { background: #F5DAD4; border-color: #E5A696; color: var(--mode-turbo); }
 
 /* Blocchi statistica Boost */
 .stat { display: flex; flex-direction: column; gap: .1rem; }

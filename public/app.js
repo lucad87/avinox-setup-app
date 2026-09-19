@@ -53,7 +53,7 @@ function toggleAdvancedSliders() {
                 surface: t('--surface'),
                 accent: t('--accent'),
                 modeColors: [t('--mode-eco'), t('--mode-auto'), t('--mode-trail'), t('--mode-turbo')],
-                accentFill: 'rgba(47, 125, 14, 0.12)'
+                accentFill: 'rgba(39, 106, 11, 0.14)'
             };
         }
 
