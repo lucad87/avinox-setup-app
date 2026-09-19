@@ -271,6 +271,174 @@
     }
 
     /* ------------------------------------------------------------------ *
+     * Grade analysis (Phase 2)
+     * ------------------------------------------------------------------ */
+
+    // Grade is measured over a distance window, never between two adjacent
+    // fixes: a 5 m pair would produce wild percentages.
+    var GRADE_WINDOW_M = 25;
+    var CLIMB_MIN_GRADE = 3;        // % needed to count as climbing
+    var CLIMB_MIN_GAIN_M = 30;      // m of gain for a climb to be reported
+    var CLIMB_MIN_LENGTH_M = 300;   // m of length for a climb to be reported
+
+    var GRADE_BANDS = [
+        { key: 'descent', label: 'Descent', max: -2 },
+        { key: 'flat', label: 'Flat', max: 3 },
+        { key: 'rolling', label: 'Rolling', max: 7 },
+        { key: 'climb', label: 'Climb', max: 12 },
+        { key: 'steep', label: 'Steep', max: 18 },
+        { key: 'extreme', label: 'Extreme', max: Infinity }
+    ];
+
+    function bandForGrade(grade) {
+        for (var i = 0; i < GRADE_BANDS.length; i++) {
+            if (grade < GRADE_BANDS[i].max) return GRADE_BANDS[i].key;
+        }
+        return GRADE_BANDS[GRADE_BANDS.length - 1].key;
+    }
+
+    function finaliseClimb(current) {
+        var sum = current.grades.reduce(function (a, b) { return a + b; }, 0);
+        return {
+            distanceM: current.distanceM,
+            gainM: current.gainM,
+            averageGrade: current.grades.length ? sum / current.grades.length : 0,
+            maxGrade: current.maxGrade
+        };
+    }
+
+    /** Groups consecutive climbing samples into named climbs. */
+    function detectClimbs(samples) {
+        var found = [];
+        var current = null;
+
+        samples.forEach(function (s) {
+            if (s.grade >= CLIMB_MIN_GRADE) {
+                if (!current) {
+                    current = { distanceM: 0, gainM: 0, maxGrade: s.grade, grades: [] };
+                }
+                current.distanceM += s.distanceM;
+                current.gainM += s.gainM;
+                current.maxGrade = Math.max(current.maxGrade, s.grade);
+                current.grades.push(s.grade);
+            } else if (current) {
+                found.push(finaliseClimb(current));
+                current = null;
+            }
+        });
+        if (current) found.push(finaliseClimb(current));
+
+        return found
+            .filter(function (c) {
+                return c.gainM >= CLIMB_MIN_GAIN_M && c.distanceM >= CLIMB_MIN_LENGTH_M;
+            })
+            .map(function (c, i) {
+                return {
+                    index: i + 1,
+                    distanceKm: c.distanceM / 1000,
+                    gainM: c.gainM,
+                    averageGrade: c.averageGrade,
+                    maxGrade: c.maxGrade
+                };
+            });
+    }
+
+    /**
+     * Grade distribution by distance, plus the climbs found along the way.
+     * Returns { ok: false, reason } when elevation is unusable.
+     */
+    function computeGradeStats(points) {
+        var elevations = points.map(function (p) {
+            return Number.isFinite(p.ele) ? p.ele : null;
+        });
+        var status = elevationStatus(elevations);
+        if (status !== 'available') return { ok: false, reason: 'elevation-' + status };
+        if (points.length < 3) return { ok: false, reason: 'too-few-points' };
+
+        var samples = [];
+        var accDistance = 0;
+        var startEle = null;
+
+        for (var i = 1; i < points.length; i++) {
+            var a = points[i - 1];
+            var b = points[i];
+
+            // A new segment restarts the window: never bridge a discontinuity.
+            if (a.segmentId !== b.segmentId) {
+                accDistance = 0;
+                startEle = null;
+                continue;
+            }
+            if (!Number.isFinite(a.ele) || !Number.isFinite(b.ele)) continue;
+
+            var d = haversine(a, b);
+            if (d <= 0) continue;
+
+            if (startEle === null) startEle = a.ele;
+            accDistance += d;
+
+            if (accDistance >= GRADE_WINDOW_M) {
+                var delta = b.ele - startEle;
+                samples.push({
+                    grade: (delta / accDistance) * 100,
+                    distanceM: accDistance,
+                    gainM: delta
+                });
+                accDistance = 0;
+                startEle = b.ele;
+            }
+        }
+
+        // Flush the trailing remainder if it is meaningful.
+        if (accDistance > 5 && startEle !== null) {
+            var last = points[points.length - 1];
+            var tailDelta = last.ele - startEle;
+            samples.push({
+                grade: (tailDelta / accDistance) * 100,
+                distanceM: accDistance,
+                gainM: tailDelta
+            });
+        }
+
+        if (samples.length === 0) return { ok: false, reason: 'too-short' };
+
+        var totalDistance = samples.reduce(function (s, x) { return s + x.distanceM; }, 0);
+        var meters = {};
+        GRADE_BANDS.forEach(function (b) { meters[b.key] = 0; });
+        samples.forEach(function (s) { meters[bandForGrade(s.grade)] += s.distanceM; });
+
+        var percent = {};
+        GRADE_BANDS.forEach(function (b) {
+            percent[b.key] = totalDistance > 0 ? (meters[b.key] / totalDistance) * 100 : 0;
+        });
+
+        var climbs = detectClimbs(samples);
+        var grades = climbs.map(function (c) { return c.averageGrade; }).sort(function (a, b) { return a - b; });
+        var medianGrade = grades.length
+            ? (grades.length % 2
+                ? grades[(grades.length - 1) / 2]
+                : (grades[grades.length / 2 - 1] + grades[grades.length / 2]) / 2)
+            : 0;
+
+        return {
+            ok: true,
+            windowM: GRADE_WINDOW_M,
+            sampleCount: samples.length,
+            distribution: percent,
+            distributionMeters: meters,
+            maxGrade: samples.reduce(function (m, s) { return Math.max(m, s.grade); }, -Infinity),
+            climbs: climbs,
+            climbSummary: {
+                count: climbs.length,
+                medianGrade: medianGrade,
+                longestKm: climbs.reduce(function (m, c) { return Math.max(m, c.distanceKm); }, 0),
+                totalGainM: climbs.reduce(function (s, c) { return s + c.gainM; }, 0),
+                steepShare: percent.steep + percent.extreme
+            }
+        };
+    }
+
+    /* ------------------------------------------------------------------ *
      * XML helpers
      * ------------------------------------------------------------------ */
 
@@ -528,6 +696,10 @@
         elevationGainLoss: elevationGainLoss,
         elevationStatus: elevationStatus,
         computeStats: computeStats,
+        computeGradeStats: computeGradeStats,
+        detectClimbs: detectClimbs,
+        bandForGrade: bandForGrade,
+        gradeBands: GRADE_BANDS,
         detectFormat: detectFormat,
         parseGpx: parseGpx,
         parseKml: parseKml,
@@ -538,7 +710,11 @@
             GAP_WARNING_M: GAP_WARNING_M,
             ELEVATION_SMOOTH_WINDOW: ELEVATION_SMOOTH_WINDOW,
             ELEVATION_THRESHOLD_M: ELEVATION_THRESHOLD_M,
-            MAX_POINTS: MAX_POINTS
+            MAX_POINTS: MAX_POINTS,
+            GRADE_WINDOW_M: GRADE_WINDOW_M,
+            CLIMB_MIN_GRADE: CLIMB_MIN_GRADE,
+            CLIMB_MIN_GAIN_M: CLIMB_MIN_GAIN_M,
+            CLIMB_MIN_LENGTH_M: CLIMB_MIN_LENGTH_M
         }
     };
 });
