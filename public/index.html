@@ -1137,6 +1137,10 @@
                             // callback mislabelled the ticks, because the callback
                             // index is the tick position, not the data index.
                             type: 'linear',
+                            // bounds 'ticks' (the default) stretches the axis to
+                            // the next whole tick, leaving a blank strip after the
+                            // route ends. 'data' stops it exactly at the last point.
+                            bounds: 'data',
                             grid: { color: '#1F2937' },
                             ticks: {
                                 color: '#6B7280', font: { size: 9 }, maxTicksLimit: 8,
