@@ -74,8 +74,10 @@
         var droppedInvalid = 0;
         var droppedDuplicate = 0;
         var gaps = 0;
+        var limit = Math.min(points.length, MAX_POINTS);
+        var truncatedPoints = Math.max(0, points.length - limit);
 
-        for (var i = 0; i < points.length; i++) {
+        for (var i = 0; i < limit; i++) {
             var p = points[i];
             if (!isValidCoord(p.lat, p.lon)) {
                 droppedInvalid++;
@@ -100,7 +102,8 @@
             points: out,
             droppedInvalid: droppedInvalid,
             droppedDuplicate: droppedDuplicate,
-            gaps: gaps
+            gaps: gaps,
+            truncatedPoints: truncatedPoints
         };
     }
 
@@ -249,8 +252,9 @@
         if (quality === 'noisy') {
             warnings.push('Elevation data looks noisy: the gain figure has been smoothed.');
         }
-        if (pts.length >= MAX_POINTS) {
-            warnings.push('Very large file: only the first ' + MAX_POINTS + ' points were analysed.');
+        if (cleaned.truncatedPoints > 0) {
+            warnings.push('Very large file: ' + cleaned.truncatedPoints +
+                ' point(s) after the first ' + MAX_POINTS + ' were ignored.');
         }
 
         return {
@@ -348,6 +352,8 @@
      * Returns { ok: false, reason } when elevation is unusable.
      */
     function computeGradeStats(points) {
+        // Keep grade analysis on the same bounded dataset as the summary.
+        if (points.length > MAX_POINTS) points = points.slice(0, MAX_POINTS);
         var elevations = points.map(function (p) {
             return Number.isFinite(p.ele) ? p.ele : null;
         });
