@@ -67,8 +67,8 @@ function toggleAdvancedSliders() {
                 maintainAspectRatio: false,
                 plugins: { legend: { display: false } },
                 scales: {
-                    y: { grid: { color: theme.grid }, ticks: { color: theme.tick, font: { size: 10 } } },
-                    x: { ticks: { color: theme.tick, font: { size: 10, weight: 'bold' } } }
+                    y: { grid: { color: theme.grid }, ticks: { color: theme.tick, font: { size: 11 } } },
+                    x: { ticks: { color: theme.tick, font: { size: 11, weight: 'bold' } } }
                 }
             };
 
@@ -664,13 +664,13 @@ function renderElevationChart(chosen) {
                     bounds: 'data',
                     grid: { color: theme.grid },
                     ticks: {
-                        color: theme.tick, font: { size: 9 }, maxTicksLimit: 8,
+                        color: theme.tick, font: { size: 10 }, maxTicksLimit: 8,
                         callback: (value) => (Math.round(value * 10) / 10) + ' km'
                     }
                 },
                 y: {
                     grid: { color: theme.grid },
-                    ticks: { color: theme.tick, font: { size: 9 } }
+                    ticks: { color: theme.tick, font: { size: 10 } }
                 }
             }
         }
