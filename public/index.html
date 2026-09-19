@@ -1056,12 +1056,16 @@
                 ['Points / segments', s.pointCount + ' / ' + s.segmentCount]
             ];
 
+            // Parser warnings (ignored points/polygons, several geometries found)
+            // must be surfaced too: they were dropped whenever a route parsed.
+            const allWarnings = ((parsedRoute && parsedRoute.warnings) || []).concat(s.warnings);
+
             box.innerHTML = `
                 <div class="bg-gray-950 border border-gray-800 rounded-xl p-3 space-y-1">
                     ${rows.map((r) => `<p class="text-xxs flex justify-between"><span class="text-gray-500 font-bold">${r[0]}</span><span class="text-gray-200">${r[1]}</span></p>`).join('')}
                     <p class="text-xxs flex justify-between"><span class="text-gray-500 font-bold">Elevation quality</span><span class="${qualityColor}">${qualityLabel}</span></p>
                 </div>
-                ${s.warnings.length ? `<div class="bg-yellow-950 border border-yellow-900 text-yellow-200 text-xxs rounded-lg p-2 mt-2 space-y-1">${s.warnings.map((w) => '<p>⚠️ ' + escapeHtml(w) + '</p>').join('')}</div>` : ''}
+                ${allWarnings.length ? `<div class="bg-yellow-950 border border-yellow-900 text-yellow-200 text-xxs rounded-lg p-2 mt-2 space-y-1">${allWarnings.map((w) => '<p>⚠️ ' + escapeHtml(w) + '</p>').join('')}</div>` : ''}
             `;
 
             // Feed the existing mission endpoint.
