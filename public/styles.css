@@ -856,7 +856,18 @@ a { color: var(--accent); }
     .brand { margin-right: auto; }
     .theme-toggle { order: 2; margin: 0; align-self: center; }
     .tabs { order: 3; width: 100%; }
-    .tab { padding: 0 .6rem; font-size: 12px; }
+    .tabs { order: 3; width: 100%; overflow-x: visible; flex-wrap: wrap; }
+    .tab {
+        flex: 1 1 auto;
+        justify-content: center;
+        text-align: center;
+        white-space: normal;
+        padding: .55rem .35rem;
+        font-size: 13px;
+    }
+
+    /* Nella KB il menu è inutile su mobile: le sezioni scorrono in pagina */
+    #tabGuide .sidebar { display: none; }
 
     .sidebar {
         position: static;
