@@ -73,6 +73,45 @@ const BOOST_DURATION_MAX = 60;
 const TORQUE_STEP_NM = 5;
 const POWER_STEP_W = 50;
 
+/* ------------------- ROUTE ENERGY MODEL (Phase 2) ------------------ */
+/* The flat/climb baseline is unchanged so figures stay comparable with    */
+/* earlier estimates. On top of it the route analysis applies two          */
+/* documented corrections, and reports an interval instead of a single     */
+/* number, because wind, temperature, tyres and riding style are unknown.  */
+
+const SURFACE_FACTORS: Record<string, number> = {
+    road: 1.00,
+    gravel: 1.12,
+    mixed: 1.22,
+    technical: 1.35
+};
+
+// Steep ground is less efficient: more torque, lower cadence, more heat.
+const STEEP_ENERGY_PENALTY = 0.35;
+
+const QUALITY_MARGIN: Record<string, number> = {
+    good: 0.12,
+    noisy: 0.22,
+    unavailable: 0.30
+};
+
+const GRADE_KEYS = ['descent', 'flat', 'rolling', 'climb', 'steep', 'extreme'];
+
+/** Keeps only the known grade bands; returns null when nothing usable. */
+function normaliseDistribution(value: unknown): Record<string, number> | null {
+    if (!value || typeof value !== 'object') return null;
+    const source = value as Record<string, unknown>;
+    const out: Record<string, number> = {};
+    let any = false;
+
+    for (const key of GRADE_KEYS) {
+        const n = parseFloat(String(source[key]));
+        out[key] = Number.isFinite(n) && n >= 0 ? n : 0;
+        if (out[key] > 0) any = true;
+    }
+    return any ? out : null;
+}
+
 /* ------------------------ 2. ASSIST LEVELS ------------------------- */
 /* Empirical motor-to-rider support ratios.                             */
 /* NOTE: this table is THIS PROJECT'S CALIBRATION, not an Avinox        */
@@ -475,15 +514,38 @@ app.post('/api/calculate-mission', (req: Request, res: Response) => {
     const batteryWh = pickNumber(body.batteryWh, 800);
     const totalWeight = riderWeight + bikeWeight;
 
+    // --- Route-aware energy model ------------------------------------
+    const surfaceId = SURFACE_FACTORS[String(body.surface)] ? String(body.surface) : 'mixed';
+    const surfaceFactor = SURFACE_FACTORS[surfaceId];
+
+    const reservePercent = clamp(pickNumber(body.reservePercent, 15), 0, 50);
+    const reserveWh = (batteryWh * reservePercent) / 100;
+    const usableWh = batteryWh - reserveWh;
+
+    const gradeDistribution = normaliseDistribution(body.gradeDistribution);
+    const steepShare = gradeDistribution
+        ? (gradeDistribution.steep + gradeDistribution.extreme) / 100
+        : 0;
+    const steepnessFactor = 1 + STEEP_ENERGY_PENALTY * steepShare;
+
     const energyFlat = km * 3.8;
     const energyClimb = hm * 0.24 * (totalWeight / 100);
-    const totalEnergyRequired = Math.round(energyFlat + energyClimb);
+    const baseEnergy = energyFlat + energyClimb;
+
+    const energyEstimated = baseEnergy * surfaceFactor * steepnessFactor;
+    const qualityId = String(body.elevationQuality);
+    const margin = QUALITY_MARGIN[qualityId] ?? QUALITY_MARGIN.noisy;
+    const energyLow = energyEstimated * (1 - margin);
+    const energyHigh = energyEstimated * (1 + margin);
+    const confidence = qualityId === 'good' ? 'medium' : 'low';
+
+    const totalEnergyRequired = Math.round(energyEstimated);
 
     let scalingFactor = 1.0;
     let feasible = true;
 
-    if (totalEnergyRequired > batteryWh) {
-        scalingFactor = batteryWh / totalEnergyRequired;
+    if (totalEnergyRequired > usableWh) {
+        scalingFactor = usableWh / totalEnergyRequired;
         feasible = false;
     }
 
@@ -559,6 +621,22 @@ app.post('/api/calculate-mission', (req: Request, res: Response) => {
         scalingFactor,
         distribution,
         bike,
+        energy: {
+            base: Math.round(baseEnergy),
+            estimated: Math.round(energyEstimated),
+            low: Math.round(energyLow),
+            high: Math.round(energyHigh),
+            marginPercent: Math.round(margin * 100),
+            flat: Math.round(energyFlat),
+            climb: Math.round(energyClimb)
+        },
+        surface: { id: surfaceId, factor: surfaceFactor },
+        steepnessFactor,
+        reserve: { percent: reservePercent, wh: Math.round(reserveWh) },
+        usableWh: Math.round(usableWh),
+        confidence,
+        gradeDistribution,
+        climbSummary: body.climbSummary ?? null,
         eco: {
             level: `Level ${ecoLvl}`, watts: `${ecoW} W`,
             torque: `${ecoNm} Nm`,
@@ -579,6 +657,167 @@ app.post('/api/calculate-mission', (req: Request, res: Response) => {
             torque: `${turboNm} Nm`,
             wkg: turboWkg.toFixed(2)
         }
+    });
+});
+
+/* ------------------------------------------------------------------ *
+ * ROUTE MODES (Phase 3)
+ * Proposes custom modes tailored to a specific route. Custom modes added
+ * from the Avinox app use a FIXED assist level, never a range.
+ * ------------------------------------------------------------------ */
+
+interface ProposedMode {
+    key: string;
+    label: string;
+    type: 'static';
+    assistLevel: number;
+    maxPower: number;
+    maxTorque: number;
+    maxOverrun: number;
+    assistStart: number;
+    continuedAssist: number;
+    maxAccel: number | null;
+    amplification: number;
+    achievable: boolean;
+    rationale: string;
+}
+
+app.post('/api/route-modes', (req: Request, res: Response) => {
+    const body = req.body ?? {};
+
+    const riderWeight = parseFloat(body.riderWeight);
+    const bikeWeight = parseFloat(body.bikeWeight);
+    const rpm = parseFloat(body.cadence);
+    const pRider = parseFloat(body.riderPower);
+
+    if (![riderWeight, bikeWeight, rpm, pRider].every((n) => Number.isFinite(n) && n > 0)) {
+        return res.status(400).json({
+            error: 'Invalid parameters: weights, cadence and rider power must be positive numbers.'
+        });
+    }
+    if (rpm < 20 || rpm > 140) {
+        return res.status(400).json({ error: 'Cadence outside the plausible range (20-140 RPM).' });
+    }
+
+    const bike = pickBike(body.bike);
+    const totalWeight = riderWeight + bikeWeight;
+    const batteryWh = pickNumber(body.batteryWh, 800);
+    const reservePercent = clamp(pickNumber(body.reservePercent, 15), 0, 50);
+    const usableWh = batteryWh * (1 - reservePercent / 100);
+
+    const km = pickNumber(body.targetKm, 0);
+    const hm = pickNumber(body.targetH_m, 0);
+    const surfaceId = SURFACE_FACTORS[String(body.surface)] ? String(body.surface) : 'mixed';
+    const gradeDistribution = normaliseDistribution(body.gradeDistribution);
+
+    const summary = (body.climbSummary && typeof body.climbSummary === 'object')
+        ? body.climbSummary as Record<string, unknown>
+        : null;
+    const climbCount = summary ? parseInt(String(summary.count), 10) || 0 : 0;
+    const medianClimbGrade = summary ? parseFloat(String(summary.medianGrade)) || 0 : 0;
+    const steepShare = gradeDistribution
+        ? gradeDistribution.steep + gradeDistribution.extreme
+        : 0;
+
+    // Same model as /api/calculate-mission, so the verdict stays consistent.
+    const energyEstimated = (km * 3.8 + hm * 0.24 * (totalWeight / 100))
+        * SURFACE_FACTORS[surfaceId]
+        * (1 + STEEP_ENERGY_PENALTY * (steepShare / 100));
+    const tightOnBattery = energyEstimated > usableWh;
+
+    const notes: string[] = [];
+
+    function propose(
+        key: string,
+        label: string,
+        wkg: number,
+        dynamic: { overrun: number; start: number; continued: number },
+        torqueFactor: number,
+        rationale: string
+    ): ProposedMode {
+        const power = snapToGrid(
+            clamp(round(totalWeight * wkg), 100, bike.maxPower),
+            POWER_STEP_W, 100, bike.maxPower
+        );
+        const idealTorque = ((power * 9.55) / rpm) * torqueFactor;
+        const torque = snapToGrid(
+            round(idealTorque),
+            TORQUE_STEP_NM, TORQUE_STEP_NM, bike.maxTorque
+        );
+        const level = findNearestAssistLevel(power / pRider, 1, 15);
+
+        return {
+            key,
+            label,
+            type: 'static',
+            assistLevel: level,
+            maxPower: power,
+            maxTorque: torque,
+            maxOverrun: dynamic.overrun,
+            assistStart: dynamic.start,
+            continuedAssist: dynamic.continued,
+            maxAccel: null,
+            amplification: pRider > 0 ? Math.round((power / pRider) * 100) / 100 : 0,
+            achievable: idealTorque <= bike.maxTorque + 0.5,
+            rationale
+        };
+    }
+
+    const selected: ProposedMode[] = [];
+
+    // ENDURANCE — the baseline for flat and rolling transit.
+    selected.push(propose(
+        'endurance', 'ROUTE ENDURANCE', 1.50,
+        { overrun: 1, start: 2, continued: 2 }, 1.0,
+        'Low fixed support for flat and rolling transit. Lowest consumption of the set.'
+    ));
+
+    // CLIMB — only when the route actually contains climbs.
+    if (climbCount > 0) {
+        const climbWkg = clamp(3.2 + Math.max(0, medianClimbGrade - 6) * 0.30, 2.5, 8.0);
+        selected.push(propose(
+            'climb', 'ROUTE CLIMB', climbWkg,
+            { overrun: 2, start: 3, continued: 4 }, 1.0,
+            `Tuned for the ${climbCount} climb(s) detected, median grade ${medianClimbGrade.toFixed(1)}%.`
+        ));
+    } else {
+        notes.push('No climbs were detected, so a CLIMB mode was not proposed.');
+    }
+
+    // RESERVE wins over TECH: it is the safety-critical one.
+    if (tightOnBattery) {
+        selected.push(propose(
+            'reserve', 'ROUTE RESERVE', 1.10,
+            { overrun: 1, start: 1, continued: 1 }, 1.0,
+            'The route exceeds the usable battery with a normal setup: use this to stretch the final part.'
+        ));
+    } else if (steepShare >= 12) {
+        selected.push(propose(
+            'tech', 'ROUTE TECH', 4.50,
+            { overrun: 1, start: 2, continued: 5 }, 1.25,
+            `Steep sections are ${steepShare.toFixed(0)}% of the route: soft ramp and extra torque for traction.`
+        ));
+    } else if (steepShare > 0) {
+        notes.push('Steep sections are under 12% of the route, so a TECH mode was not proposed.');
+    }
+
+    if (!gradeDistribution) {
+        notes.push('No grade distribution was supplied: proposals use distance and total gain only.');
+    }
+    notes.push('Custom modes in the Avinox app use a fixed assist level, never a range.');
+
+    return res.json({
+        bike,
+        totalWeight,
+        energyEstimated: Math.round(energyEstimated),
+        usableWh: Math.round(usableWh),
+        tightOnBattery,
+        steepShare: Math.round(steepShare * 10) / 10,
+        climbCount,
+        medianClimbGrade: Math.round(medianClimbGrade * 10) / 10,
+        surface: { id: surfaceId, factor: SURFACE_FACTORS[surfaceId] },
+        modes: selected,
+        notes
     });
 });
 
