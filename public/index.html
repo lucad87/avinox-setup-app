@@ -3,7 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DJI Avinox Custom Setup Panel</title>
+    <title>Avinox Calc — Custom Setup Panel</title>
+    <link rel="icon" href="/favicon.ico" sizes="any">
+    <link rel="icon" type="image/png" sizes="64x64" href="/assets/favicon-64.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-32.png">
+    <link rel="apple-touch-icon" href="/assets/favicon-180.png">
+    <meta name="theme-color" content="#212529">
+    <meta name="description" content="Custom assist mode setup and route planning for DJI Avinox M2 and M2S e-bike motors.">
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
@@ -25,8 +31,8 @@
         
         <div class="border-b border-gray-800 pb-5 mb-8 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
             <div>
-                <h1 class="text-3xl font-black text-white uppercase tracking-wider bg-clip-text text-transparent bg-gradient-to-r from-white to-gray-400">Avinox Ecosystem Panel</h1>
-                <p class="text-sm text-blue-400 font-medium mt-1">Calibrate the bio-mechanical parameters of your DJI Avinox M2 / M2S engine and optimize battery range.</p>
+                <img src="/assets/logo-full.png" alt="Avinox Calc" class="h-14 w-auto mb-1.5">
+                <p class="text-sm text-blue-400 font-medium">Calibrate the bio-mechanical parameters of your DJI Avinox M2 / M2S engine and optimize battery range.</p>
             </div>
             <div class="grid grid-cols-1 sm:flex sm:flex-row gap-2 w-full lg:w-auto">
                 <button id="tabCalcBtn" onclick="switchTab('calc')" class="bg-blue-600 text-white font-bold text-xs uppercase tracking-wider py-2.5 px-5 rounded-xl shadow-lg transition focus:outline-none text-center">
