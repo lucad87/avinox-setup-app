@@ -656,7 +656,6 @@ a { color: var(--accent); }
 .kb-nav a:hover, .kb-nav a:focus-visible { background: var(--accent-soft); color: var(--accent); }
 
 .kb-section { scroll-margin-top: calc(var(--header-h) + 12px); }
-.kb-content { max-width: 76ch; }
 .kb-section h2 { font-size: var(--fs-h2); font-weight: 750; color: var(--ink); }
 .kb-subtitle { font-size: 11px; color: var(--faint); margin-top: .15rem; }
 .kb-section p { color: var(--text); }
