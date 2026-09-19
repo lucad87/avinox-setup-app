@@ -745,7 +745,7 @@ a { color: var(--accent); }
    -------------------------------------------------------------------------- */
 
 /* Stack verticale di form */
-.form-stack { display: flex; flex-direction: column; gap: .8rem; }
+.form-stack:not(.hidden) { display: flex; flex-direction: column; gap: .8rem; }
 .form-stack > .field-row { gap: .6rem; }
 
 .btn-block { width: 100%; }
@@ -854,6 +854,7 @@ a { color: var(--accent); }
     .theme-toggle { align-self: flex-end; margin: .35rem 0 0; }
     .app-header { flex-direction: column; align-items: stretch; gap: 0; padding: .5rem .75rem 0; }
     .tabs { align-self: stretch; }
+    .tab { padding: 0 .6rem; font-size: 12px; }
 
     .sidebar {
         position: static;
