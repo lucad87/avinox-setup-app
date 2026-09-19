@@ -130,19 +130,25 @@ a { color: var(--accent); }
     background: var(--brand);
 }
 
-/* Logo su targhetta antracite: il lime del brand ha contrasto solo su fondo scuro */
+/* Logo nudo, più grande; un drop-shadow antracite gli dà definizione
+   sul fondo carta senza contenitori intorno. */
 .brand {
     display: flex;
     align-items: center;
     align-self: center;
-    padding: .45rem .6rem;
-    background: var(--ink);
-    border-radius: var(--r);
-    box-shadow: var(--shadow);
     text-decoration: none;
 }
-.brand-logo { height: 40px; width: auto; }
-.brand-mark { display: none; height: 34px; width: auto; }
+.brand-logo {
+    height: 48px;
+    width: auto;
+    filter: drop-shadow(0 1px 1.5px rgba(40, 48, 56, .5)) drop-shadow(0 0 1px rgba(40, 48, 56, .35));
+}
+.brand-mark {
+    display: none;
+    height: 38px;
+    width: auto;
+    filter: drop-shadow(0 1px 1.5px rgba(40, 48, 56, .5)) drop-shadow(0 0 1px rgba(40, 48, 56, .35));
+}
 
 .tabs {
     display: flex;
