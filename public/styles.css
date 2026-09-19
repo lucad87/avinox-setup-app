@@ -461,6 +461,7 @@ a { color: var(--accent); }
 
 .mode-head {
     display: flex;
+    flex-wrap: wrap;
     justify-content: space-between;
     align-items: center;
     gap: .5rem;
@@ -851,9 +852,10 @@ a { color: var(--accent); }
 
     .brand-logo { display: none; }
     .brand-mark { display: block; }
-    .theme-toggle { align-self: flex-end; margin: .35rem 0 0; }
-    .app-header { flex-direction: column; align-items: stretch; gap: 0; padding: .5rem .75rem 0; }
-    .tabs { align-self: stretch; }
+    .app-header { flex-wrap: wrap; gap: .2rem; padding: .45rem .75rem 0; }
+    .brand { margin-right: auto; }
+    .theme-toggle { order: 2; margin: 0; align-self: center; }
+    .tabs { order: 3; width: 100%; }
     .tab { padding: 0 .6rem; font-size: 12px; }
 
     .sidebar {
@@ -878,8 +880,8 @@ a { color: var(--accent); }
     .btn, .segmented > button { min-height: 40px; }
     .preset { min-height: 40px; }
 
-    .kb-nav { flex-direction: row; overflow-x: auto; scrollbar-width: none; }
-    .kb-nav a { flex: 0 0 auto; white-space: nowrap; }
+    .kb-nav { flex-direction: row; flex-wrap: wrap; gap: .15rem .2rem; }
+    .kb-nav a { flex: 0 0 auto; white-space: nowrap; padding: .35rem .5rem; font-size: 11.5px; }
 }
 
 @media (max-width: 639px) {

@@ -215,7 +215,6 @@ async function updateSetup() {
                 <div>
                     <div class="mode-head">
                         <span class="mode-title">BOOST</span>
-                        <span class="badge badge-soft">Torque / power fixed · duration adjustable</span>
                     </div>
                     <div class="boost-stats">
                         <div class="stat"><span class="stat-label">Torque</span><span class="stat-value">${b.torque} Nm</span></div>
@@ -861,11 +860,15 @@ function switchTab(tabName) {
         guide: { tab: document.getElementById('tabGuide'), button: document.getElementById('tabGuideBtn') }
     };
 
-    Object.keys(workspaces).forEach((key) => {
-        const active = key === tabName;
-        workspaces[key].tab.classList.toggle('hidden', !active);
-        workspaces[key].tab.classList.toggle('block', active);
-        workspaces[key].button.classList.toggle('is-active', active);
-        workspaces[key].button.setAttribute('aria-selected', active ? 'true' : 'false');
-    });
-}
+            Object.keys(workspaces).forEach((key) => {
+                const active = key === tabName;
+                workspaces[key].tab.classList.toggle('hidden', !active);
+                workspaces[key].tab.classList.toggle('block', active);
+                workspaces[key].button.classList.toggle('is-active', active);
+                workspaces[key].button.setAttribute('aria-selected', active ? 'true' : 'false');
+            });
+
+            // The selected tab starts from its top: otherwise switching while
+            // scrolled down lands mid-content (e.g. past the KB index).
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
