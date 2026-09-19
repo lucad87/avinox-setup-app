@@ -984,6 +984,16 @@
             }
             block.classList.remove('hidden');
 
+            // Match the column count to the number of proposals, so three
+            // modes sit on one row instead of leaving a lonely third card.
+            const count = res.modes.length;
+            grid.className = 'grid gap-4 ' + (
+                count >= 4 ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-4' :
+                count === 3 ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3' :
+                count === 2 ? 'grid-cols-1 sm:grid-cols-2' :
+                'grid-cols-1'
+            );
+
             grid.innerHTML = res.modes.map((m) => `
                 <div class="bg-gray-800 p-4 rounded-xl border border-gray-700 text-xs shadow-md">
                     <div class="flex justify-between items-center mb-2">
