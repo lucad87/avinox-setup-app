@@ -307,17 +307,18 @@ async function handleRouteFile(file) {
         return;
     }
 
-    try {
-        parsedRoute = AvinoxRoute.parseRouteFile(text, file.name);
-    } catch (err) {
-        parsedRoute = null;
-        routeStats = null;
-        document.getElementById('geometryPicker').classList.add('hidden');
-        document.getElementById('fileSummary').classList.add('hidden');
-        document.getElementById('elevationPanel').classList.add('hidden');
-        setFileStatus(err.message, 'error');
-        return;
-    }
+            try {
+                parsedRoute = AvinoxRoute.parseRouteFile(text, file.name);
+            } catch (err) {
+                parsedRoute = null;
+                routeStats = null;
+                document.getElementById('geometryPanel').classList.add('hidden');
+                document.getElementById('geometryPicker').classList.add('hidden');
+                document.getElementById('fileSummary').classList.add('hidden');
+                document.getElementById('elevationPanel').classList.add('hidden');
+                setFileStatus(err.message, 'error');
+                return;
+            }
 
     if (!parsedRoute.geometries.length) {
         setFileStatus(parsedRoute.warnings.join(' ') || 'No route found in this file.', 'error');
@@ -338,23 +339,23 @@ async function handleRouteFile(file) {
     applyRouteSelection();
 }
 
-function renderGeometryPicker() {
-    const box = document.getElementById('geometryPicker');
-    if (!parsedRoute || parsedRoute.geometries.length < 2) {
-        box.classList.add('hidden');
-        box.innerHTML = '';
-        return;
-    }
-    box.classList.remove('hidden');
+        function renderGeometryPicker() {
+            const panel = document.getElementById('geometryPanel');
+            const box = document.getElementById('geometryPicker');
+            if (!parsedRoute || parsedRoute.geometries.length < 2) {
+                panel.classList.add('hidden');
+                box.classList.add('hidden');
+                box.innerHTML = '';
+                return;
+            }
+            panel.classList.remove('hidden');
+            box.classList.remove('hidden');
 
             const total = parsedRoute.geometries.length;
             box.innerHTML = `
-                <div class="picker-head">
-                    <p id="geomCounter" class="hint">${selectedGeometries.length} of ${total} segments selected</p>
-                    <div class="picker-actions">
-                        <button type="button" id="geomAll" class="mini-btn">All</button>
-                        <button type="button" id="geomNone" class="mini-btn">First only</button>
-                    </div>
+                <div class="picker-actions">
+                    <button type="button" id="geomAll" class="mini-btn">All</button>
+                    <button type="button" id="geomNone" class="mini-btn">First only</button>
                 </div>` +
                 parsedRoute.geometries.map((g, i) => `
                     <label class="track-item">
@@ -363,10 +364,11 @@ function renderGeometryPicker() {
                         <span class="track-km">${(geometryDistance(g) / 1000).toFixed(1)} km</span>
                     </label>`).join('');
 
-    const updateCounter = () => {
-        const el = document.getElementById('geomCounter');
-        if (el) el.innerText = selectedGeometries.length + ' of ' + total + ' segments selected';
-    };
+            const updateCounter = () => {
+                const el = document.getElementById('geomCounter');
+                if (el) el.innerText = selectedGeometries.length + ' of ' + total + ' segments selected';
+            };
+            updateCounter();
 
     const syncCheckboxes = () => {
         box.querySelectorAll('input[data-geom]').forEach((c) => {
