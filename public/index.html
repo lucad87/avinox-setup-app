@@ -7,6 +7,7 @@
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="/route-file.js"></script>
     <style>
         /* App shell. Replaces Tailwind's `container` + `max-w-7xl` (1280px),
            which left a lot of unused space on the sides of a desktop screen.
@@ -203,17 +204,42 @@
             <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
                 <div class="lg:col-span-4 bg-gray-900 p-5 rounded-2xl border border-gray-800 shadow-xl space-y-4">
                     <div class="border-b border-gray-800 pb-2">
-                        <h2 class="text-xs font-black text-gray-400 uppercase tracking-widest">Track Geography</h2>
+                        <h2 class="text-xs font-black text-gray-400 uppercase tracking-widest">Route Source</h2>
                     </div>
                     <form id="missionForm" class="space-y-4 text-sm">
-                        <div>
-                            <label class="block text-xs font-semibold text-gray-400 mb-1">Target Distance (km)</label>
-                            <input type="number" id="targetKm" value="70" required class="w-full bg-gray-800 border border-gray-700 rounded-xl p-2.5 text-white focus:outline-none focus:border-green-500 transition">
+                        <div class="grid grid-cols-2 gap-2">
+                            <button type="button" id="srcManualBtn" onclick="setRouteSource('manual')"
+                                class="bg-green-600 text-white font-bold text-xxs uppercase tracking-wider py-2 px-3 rounded-lg transition focus:outline-none">Manual</button>
+                            <button type="button" id="srcFileBtn" onclick="setRouteSource('file')"
+                                class="bg-gray-800 text-gray-400 hover:text-white font-bold text-xxs uppercase tracking-wider py-2 px-3 rounded-lg transition focus:outline-none">Route file</button>
                         </div>
-                        <div>
-                            <label class="block text-xs font-semibold text-gray-400 mb-1">Positive Elevation Gain (meters)</label>
-                            <input type="number" id="targetH_m" value="1500" required class="w-full bg-gray-800 border border-gray-700 rounded-xl p-2.5 text-white focus:outline-none focus:border-green-500 transition">
+
+                        <div class="space-y-4">
+                            <div>
+                                <label class="block text-xs font-semibold text-gray-400 mb-1">Distance (km)</label>
+                                <input type="number" id="targetKm" value="70" min="1" step="0.1" required class="w-full bg-gray-800 border border-gray-700 rounded-xl p-2.5 text-white focus:outline-none focus:border-green-500 transition">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-gray-400 mb-1">Elevation gain (m)</label>
+                                <input type="number" id="targetH_m" value="1500" min="0" step="1" required class="w-full bg-gray-800 border border-gray-700 rounded-xl p-2.5 text-white focus:outline-none focus:border-green-500 transition">
+                            </div>
+                            <p class="text-xxs text-gray-500">In <strong class="text-gray-400">Route file</strong> mode these are filled from the file and stay editable.</p>
                         </div>
+
+                        <div id="fileSource" class="hidden space-y-3">
+                            <div id="dropZone"
+                                class="border-2 border-dashed border-gray-700 rounded-xl p-4 text-center cursor-pointer hover:border-green-500 transition">
+                                <p class="text-xs text-gray-400">Drop a <strong class="text-gray-200">.gpx</strong> or
+                                    <strong class="text-gray-200">.kml</strong> file here</p>
+                                <p class="text-xxs text-gray-500 mt-1">or click to choose</p>
+                            </div>
+                            <input type="file" id="routeFileInput" accept=".gpx,.kml,application/gpx+xml,application/vnd.google-earth.kml+xml" class="hidden">
+                            <p class="text-xxs text-gray-500">Parsed on your device — coordinates are never uploaded.</p>
+                            <div id="fileStatus" class="text-xxs"></div>
+                            <div id="geometryPicker" class="hidden space-y-1.5"></div>
+                            <div id="fileSummary" class="hidden"></div>
+                        </div>
+
                         <button type="submit" class="w-full bg-green-600 hover:bg-green-700 text-white font-black py-3 px-4 rounded-xl transition uppercase tracking-wider text-xs shadow-lg">
                             Analyze Strategy
                         </button>
@@ -247,6 +273,16 @@
 
                     <h3 class="text-xs font-black text-gray-400 uppercase tracking-widest pt-2">Recommended Safety Boundaries</h3>
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4" id="missionGrid"></div>
+
+                    <div id="elevationPanel" class="hidden">
+                        <h3 class="text-xs font-black text-gray-400 uppercase tracking-widest pt-2">Elevation Profile</h3>
+                        <div class="h-56 flex flex-col mt-2">
+                            <div class="flex-1 relative w-full px-2">
+                                <canvas id="elevationChart"></canvas>
+                            </div>
+                        </div>
+                        <p id="elevationNote" class="text-xxs text-gray-500 mt-1"></p>
+                    </div>
                 </div>
             </div>
         </div>
@@ -658,8 +694,306 @@
             }
         }
 
+        /* ==================================================================
+         * Route file import (GPX / KML)
+         * Parsing happens entirely in the browser: coordinates never leave
+         * the device. Only distance and elevation gain are sent to the API.
+         * ================================================================== */
+
+        let routeSource = 'manual';
+        let parsedRoute = null;       // { source, geometries, warnings }
+        let selectedGeometries = [];  // indices into parsedRoute.geometries
+        let routeStats = null;
+        let elevationChartInstance = null;
+
+        const BTN_ON = 'bg-green-600 text-white font-bold text-xxs uppercase tracking-wider py-2 px-3 rounded-lg transition focus:outline-none';
+        const BTN_OFF = 'bg-gray-800 text-gray-400 hover:text-white font-bold text-xxs uppercase tracking-wider py-2 px-3 rounded-lg transition focus:outline-none';
+
+        function setRouteSource(mode) {
+            routeSource = mode;
+            const fileBlock = document.getElementById('fileSource');
+            const manualBtn = document.getElementById('srcManualBtn');
+            const fileBtn = document.getElementById('srcFileBtn');
+
+            if (mode === 'manual') {
+                fileBlock.classList.add('hidden');
+                manualBtn.className = BTN_ON;
+                fileBtn.className = BTN_OFF;
+            } else {
+                fileBlock.classList.remove('hidden');
+                manualBtn.className = BTN_OFF;
+                fileBtn.className = BTN_ON;
+            }
+        }
+
+        function setFileStatus(msg, kind) {
+            const el = document.getElementById('fileStatus');
+            const colors = { error: 'text-red-400', ok: 'text-green-400', info: 'text-gray-400' };
+            el.className = 'text-xxs ' + (colors[kind] || colors.info);
+            el.innerText = msg || '';
+        }
+
+        function escapeHtml(s) {
+            return String(s).replace(/[&<>"']/g, (c) => (
+                { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+            ));
+        }
+
+        function geometryDistance(geom) {
+            let d = 0;
+            for (let i = 1; i < geom.points.length; i++) {
+                d += AvinoxRoute.haversine(geom.points[i - 1], geom.points[i]);
+            }
+            return d;
+        }
+
+        async function handleRouteFile(file) {
+            if (!file) return;
+            if (file.size > 10 * 1024 * 1024) {
+                setFileStatus('File is larger than 10 MB.', 'error');
+                return;
+            }
+            setFileStatus('Reading ' + file.name + '…', 'info');
+
+            let text;
+            try {
+                text = await file.text();
+            } catch (e) {
+                setFileStatus('Could not read the file.', 'error');
+                return;
+            }
+
+            try {
+                parsedRoute = AvinoxRoute.parseRouteFile(text, file.name);
+            } catch (err) {
+                parsedRoute = null;
+                routeStats = null;
+                document.getElementById('geometryPicker').classList.add('hidden');
+                document.getElementById('fileSummary').classList.add('hidden');
+                document.getElementById('elevationPanel').classList.add('hidden');
+                setFileStatus(err.message, 'error');
+                return;
+            }
+
+            if (!parsedRoute.geometries.length) {
+                setFileStatus(parsedRoute.warnings.join(' ') || 'No route found in this file.', 'error');
+                return;
+            }
+
+            setFileStatus(parsedRoute.source.toUpperCase() + ' parsed — ' +
+                parsedRoute.geometries.length + ' geometry(ies) found.', 'ok');
+
+            // Default to the longest geometry.
+            let bestDistance = -1;
+            selectedGeometries = [0];
+            parsedRoute.geometries.forEach((g, i) => {
+                const d = geometryDistance(g);
+                if (d > bestDistance) { bestDistance = d; selectedGeometries = [i]; }
+            });
+
+            renderGeometryPicker();
+            applyRouteSelection();
+        }
+
+        function renderGeometryPicker() {
+            const box = document.getElementById('geometryPicker');
+            if (!parsedRoute || parsedRoute.geometries.length < 2) {
+                box.classList.add('hidden');
+                box.innerHTML = '';
+                return;
+            }
+            box.classList.remove('hidden');
+            box.innerHTML = '<p class="text-xxs font-bold uppercase text-gray-400">Geometries — pick one or more</p>' +
+                parsedRoute.geometries.map((g, i) => `
+                    <label class="flex items-center gap-2 text-xxs bg-gray-950 border border-gray-800 rounded-lg p-2 cursor-pointer">
+                        <input type="checkbox" data-geom="${i}" ${selectedGeometries.indexOf(i) >= 0 ? 'checked' : ''} class="accent-green-500">
+                        <span class="text-gray-300 flex-1">${escapeHtml(g.name)}</span>
+                        <span class="text-gray-500">${(geometryDistance(g) / 1000).toFixed(1)} km</span>
+                    </label>`).join('');
+
+            box.querySelectorAll('input[data-geom]').forEach((cb) => {
+                cb.addEventListener('change', () => {
+                    const picked = [];
+                    box.querySelectorAll('input[data-geom]').forEach((c) => {
+                        if (c.checked) picked.push(parseInt(c.getAttribute('data-geom'), 10));
+                    });
+                    // Never allow an empty selection.
+                    if (picked.length === 0) {
+                        cb.checked = true;
+                        picked.push(parseInt(cb.getAttribute('data-geom'), 10));
+                    }
+                    selectedGeometries = picked;
+                    applyRouteSelection();
+                });
+            });
+        }
+
+        function applyRouteSelection() {
+            if (!parsedRoute) return;
+            const chosen = selectedGeometries
+                .map((i) => parsedRoute.geometries[i])
+                .filter(Boolean);
+            if (!chosen.length) return;
+
+            const route = AvinoxRoute.buildRoute(chosen);
+            routeStats = AvinoxRoute.computeStats(route.points);
+
+            renderFileSummary();
+            renderElevationChart(chosen);
+        }
+
+        function renderFileSummary() {
+            const box = document.getElementById('fileSummary');
+            box.classList.remove('hidden');
+
+            if (!routeStats || !routeStats.ok) {
+                box.innerHTML = '<div class="bg-red-950 border border-red-900 text-red-300 text-xxs rounded-lg p-2">' +
+                    escapeHtml(routeStats ? routeStats.error : 'Could not analyse the route.') + '</div>';
+                return;
+            }
+
+            const s = routeStats;
+            const eleOk = s.elevationStatus === 'available';
+            const qualityColor = { good: 'text-green-400', noisy: 'text-yellow-400', unavailable: 'text-red-400' }[s.quality];
+            const qualityLabel = { good: 'Good', noisy: 'Noisy (smoothed)', unavailable: 'Unavailable' }[s.quality];
+
+            const rows = [
+                ['Distance', s.distanceKm.toFixed(1) + ' km'],
+                ['Elevation gain', eleOk ? Math.round(s.elevationGainM) + ' m' : '—'],
+                ['Elevation loss', eleOk ? Math.round(s.elevationLossM) + ' m' : '—'],
+                ['Min / max altitude', eleOk ? Math.round(s.minElevationM) + ' / ' + Math.round(s.maxElevationM) + ' m' : '—'],
+                ['Points / segments', s.pointCount + ' / ' + s.segmentCount]
+            ];
+
+            box.innerHTML = `
+                <div class="bg-gray-950 border border-gray-800 rounded-xl p-3 space-y-1">
+                    ${rows.map((r) => `<p class="text-xxs flex justify-between"><span class="text-gray-500 font-bold">${r[0]}</span><span class="text-gray-200">${r[1]}</span></p>`).join('')}
+                    <p class="text-xxs flex justify-between"><span class="text-gray-500 font-bold">Elevation quality</span><span class="${qualityColor}">${qualityLabel}</span></p>
+                </div>
+                ${s.warnings.length ? `<div class="bg-yellow-950 border border-yellow-900 text-yellow-200 text-xxs rounded-lg p-2 mt-2 space-y-1">${s.warnings.map((w) => '<p>⚠️ ' + escapeHtml(w) + '</p>').join('')}</div>` : ''}
+            `;
+
+            // Feed the existing mission endpoint.
+            document.getElementById('targetKm').value = s.distanceKm.toFixed(1);
+            if (eleOk) {
+                document.getElementById('targetH_m').value = Math.round(s.elevationGainM);
+            }
+        }
+
+        function renderElevationChart(chosen) {
+            const panel = document.getElementById('elevationPanel');
+            const note = document.getElementById('elevationNote');
+
+            if (!routeStats || !routeStats.ok || routeStats.elevationStatus !== 'available') {
+                panel.classList.add('hidden');
+                return;
+            }
+
+            const labels = [];
+            const values = [];
+            let cumulative = 0;
+
+            chosen.forEach((geom) => {
+                geom.points.forEach((p, i) => {
+                    if (i > 0) cumulative += AvinoxRoute.haversine(geom.points[i - 1], p);
+                    if (Number.isFinite(p.ele)) {
+                        labels.push((cumulative / 1000).toFixed(2));
+                        values.push(p.ele);
+                    }
+                });
+            });
+
+            if (values.length < 2) {
+                panel.classList.add('hidden');
+                return;
+            }
+            panel.classList.remove('hidden');
+
+            const ctx = document.getElementById('elevationChart').getContext('2d');
+            if (elevationChartInstance) elevationChartInstance.destroy();
+
+            elevationChartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        data: values,
+                        borderColor: '#10B981',
+                        backgroundColor: 'rgba(16, 185, 129, 0.15)',
+                        borderWidth: 1.5,
+                        pointRadius: 0,
+                        fill: true,
+                        tension: 0.15
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                title: (items) => items[0].label + ' km',
+                                label: (item) => Math.round(item.parsed.y) + ' m'
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: { color: '#1F2937' },
+                            ticks: {
+                                color: '#6B7280', font: { size: 9 }, maxTicksLimit: 8,
+                                callback: function (value, index) { return labels[index] + ' km'; }
+                            }
+                        },
+                        y: {
+                            grid: { color: '#1F2937' },
+                            ticks: { color: '#6B7280', font: { size: 9 } }
+                        }
+                    }
+                }
+            });
+
+            note.innerText = 'Elevation smoothed over ' + routeStats.smoothingWindow +
+                ' point(s), gain threshold ' + AvinoxRoute.constants.ELEVATION_THRESHOLD_M + ' m.';
+        }
+
+        (function initRouteFileInput() {
+            const drop = document.getElementById('dropZone');
+            const input = document.getElementById('routeFileInput');
+            if (!drop || !input) return;
+
+            drop.addEventListener('click', () => input.click());
+            input.addEventListener('change', () => {
+                if (input.files && input.files[0]) handleRouteFile(input.files[0]);
+            });
+
+            ['dragenter', 'dragover'].forEach((ev) => {
+                drop.addEventListener(ev, (e) => {
+                    e.preventDefault();
+                    drop.classList.add('border-green-500');
+                });
+            });
+            ['dragleave', 'drop'].forEach((ev) => {
+                drop.addEventListener(ev, (e) => {
+                    e.preventDefault();
+                    drop.classList.remove('border-green-500');
+                });
+            });
+            drop.addEventListener('drop', (e) => {
+                const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+                if (f) handleRouteFile(f);
+            });
+        })();
+
         document.getElementById('missionForm').addEventListener('submit', async (e) => {
             e.preventDefault();
+
+            if (routeSource === 'file' && (!routeStats || !routeStats.ok)) {
+                alert('Load a GPX or KML file first, or switch back to Manual.');
+                return;
+            }
+
             const selectedBattery = document.getElementById('batteryWh').value;
             const data = {
                 bike: document.getElementById('bike').value,
