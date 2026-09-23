@@ -145,6 +145,19 @@ function ratioOfLevel(level: number): number {
     return found ? found.ratio : 0;
 }
 
+/* ------------------- STOCK DJI MODES (reference) -------------------- */
+/* Defaults shipped by the DJI app (screenshot-verified). Used only for */
+/* the runtime comparison chart: same rider model, stock level/power.   */
+/* For range modes the CEILING level is used, matching how this app     */
+/* models its own ranges.                                               */
+
+const STOCK_MODES: Array<{ key: string; label: string; level: number; maxPower: number; maxTorque: number }> = [
+    { key: 'eco', label: 'ECO', level: 4, maxPower: 200, maxTorque: 50 },
+    { key: 'auto', label: 'AUTO', level: 11, maxPower: 1300, maxTorque: 130 },
+    { key: 'trail', label: 'TRAIL', level: 11, maxPower: 1300, maxTorque: 130 },
+    { key: 'turbo', label: 'TURBO', level: 13, maxPower: 1300, maxTorque: 130 }
+];
+
 /** Human-readable % of rider input for a level, e.g. "360%". */
 function pctOfLevel(level: number): string {
     return `${Math.round(ratioOfLevel(level) * 100)}%`;
@@ -484,6 +497,19 @@ app.post('/api/calculate', (req: Request, res: Response) => {
             : 'Full 1500 W Boost requires the FP700 (700 Wh) pack; with the selected battery peak output is lower.';
     }
 
+    // Stock DJI modes (reference): expected draw with the same rider model,
+    // using each stock mode's level, power cap and torque cap.
+    const stock = STOCK_MODES.map((s) => {
+        const stockTypical = Math.round(Math.min(
+            ratioOfLevel(s.level) * pRider,
+            s.maxPower,
+            (s.maxTorque * rpm) / 9.55
+        ));
+        const speed = { eco: 22, auto: 18, trail: 14, turbo: 10 }[s.key] ?? 15;
+        const m = calculateMetrics(stockTypical, speed, batteryWh);
+        return { key: s.key, label: s.label, typicalPower: stockTypical, runtime: m.runtime, range: m.range };
+    });
+
     return res.json({
         bike,
         totalWeight,
@@ -509,6 +535,7 @@ app.post('/api/calculate', (req: Request, res: Response) => {
         auto: byKey.auto,
         trail: byKey.trail,
         turbo: byKey.turbo,
+        stock,
         warnings: globalWarnings
     });
 });
