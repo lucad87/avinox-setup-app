@@ -113,33 +113,41 @@ function normaliseDistribution(value: unknown): Record<string, number> | null {
 }
 
 /* ------------------------ 2. ASSIST LEVELS ------------------------- */
-/* Empirical motor-to-rider support ratios.                             */
-/* NOTE: this table is THIS PROJECT'S CALIBRATION, not an Avinox        */
-/* specification. The community data point at level 15 (~800%           */
-/* amplification) differs slightly from the 950% below. It is editable  */
-/* in this single place.                                                */
+/* Motor-to-rider support ratios per level, as % of rider input.        */
+/* SOURCE: community-confirmed mapping for the M2S (multiple independent */
+/* users agree on the full curve; anchor levels 3=100%, 4=150%, 8=300%,  */
+/* 13=700% are the most cited). The DJI app does not display these %, so */
+/* this remains community data, not an official DJI specification.       */
+/* Previous project calibration kept for reference:                      */
+/*   0.30, 0.60, 0.80, 1.00, 1.25, 1.50, 1.75, 2.25, 3.00, 3.75,         */
+/*   4.45, 5.25, 6.75, 8.25, 9.50                                        */
 
 const ASSIST_LEVELS: Array<{ level: number; ratio: number }> = [
-    { level: 1, ratio: 0.30 },
-    { level: 2, ratio: 0.60 },
-    { level: 3, ratio: 0.80 },
-    { level: 4, ratio: 1.00 },
-    { level: 5, ratio: 1.25 },
-    { level: 6, ratio: 1.50 },
-    { level: 7, ratio: 1.75 },
-    { level: 8, ratio: 2.25 },
-    { level: 9, ratio: 3.00 },
-    { level: 10, ratio: 3.75 },
-    { level: 11, ratio: 4.45 },
-    { level: 12, ratio: 5.25 },
-    { level: 13, ratio: 6.75 },
-    { level: 14, ratio: 8.25 },
-    { level: 15, ratio: 9.50 }
+    { level: 1, ratio: 0.35 },
+    { level: 2, ratio: 0.70 },
+    { level: 3, ratio: 1.00 },
+    { level: 4, ratio: 1.50 },
+    { level: 5, ratio: 1.85 },
+    { level: 6, ratio: 2.15 },
+    { level: 7, ratio: 2.45 },
+    { level: 8, ratio: 3.00 },
+    { level: 9, ratio: 3.60 },
+    { level: 10, ratio: 4.35 },
+    { level: 11, ratio: 5.15 },
+    { level: 12, ratio: 6.05 },
+    { level: 13, ratio: 7.00 },
+    { level: 14, ratio: 7.65 },
+    { level: 15, ratio: 8.00 }
 ];
 
 function ratioOfLevel(level: number): number {
     const found = ASSIST_LEVELS.find((a) => a.level === level);
     return found ? found.ratio : 0;
+}
+
+/** Human-readable % of rider input for a level, e.g. "360%". */
+function pctOfLevel(level: number): string {
+    return `${Math.round(ratioOfLevel(level) * 100)}%`;
 }
 
 /**
@@ -260,6 +268,7 @@ interface ModeResult {
     type: 'static' | 'range';
     desc: string;
     level: string;
+    levelPct: string;
     assistMin: number;
     assistMax: number;
     watts: string;
@@ -319,6 +328,9 @@ function buildMode(
         type: bp.type,
         desc: bp.desc,
         level: assistMin === assistMax ? `Level ${assistMin}` : `Level ${assistMin} - ${assistMax}`,
+        levelPct: assistMin === assistMax
+            ? pctOfLevel(assistMin)
+            : `${pctOfLevel(assistMin)} – ${pctOfLevel(assistMax)}`,
         assistMin,
         assistMax,
         watts: `${maxPower} W`,
@@ -638,22 +650,24 @@ app.post('/api/calculate-mission', (req: Request, res: Response) => {
         gradeDistribution,
         climbSummary: body.climbSummary ?? null,
         eco: {
-            level: `Level ${ecoLvl}`, watts: `${ecoW} W`,
+            level: `Level ${ecoLvl}`, levelPct: pctOfLevel(ecoLvl), watts: `${ecoW} W`,
             torque: `${ecoNm} Nm`,
             wkg: ecoWkg.toFixed(2)
         },
         auto: {
-            level: `Level ${autoMinLvl} - ${autoMaxLvl}`, watts: `${autoW} W`,
+            level: `Level ${autoMinLvl} - ${autoMaxLvl}`,
+            levelPct: `${pctOfLevel(autoMinLvl)} – ${pctOfLevel(autoMaxLvl)}`, watts: `${autoW} W`,
             torque: `${autoNm} Nm`,
             wkg: autoWkg.toFixed(2)
         },
         trail: {
-            level: `Level ${trailMinLvl} - ${trailMaxLvl}`, watts: `${trailW} W`,
+            level: `Level ${trailMinLvl} - ${trailMaxLvl}`,
+            levelPct: `${pctOfLevel(trailMinLvl)} – ${pctOfLevel(trailMaxLvl)}`, watts: `${trailW} W`,
             torque: `${trailNm} Nm`,
             wkg: trailWkg.toFixed(2)
         },
         turbo: {
-            level: `Level ${turboLvl}`, watts: `${turboW} W`,
+            level: `Level ${turboLvl}`, levelPct: pctOfLevel(turboLvl), watts: `${turboW} W`,
             torque: `${turboNm} Nm`,
             wkg: turboWkg.toFixed(2)
         }
@@ -671,6 +685,7 @@ interface ProposedMode {
     label: string;
     type: 'static';
     assistLevel: number;
+    assistLevelPct: string;
     maxPower: number;
     maxTorque: number;
     maxOverrun: number;
@@ -751,6 +766,7 @@ app.post('/api/route-modes', (req: Request, res: Response) => {
             label,
             type: 'static',
             assistLevel: level,
+            assistLevelPct: pctOfLevel(level),
             maxPower: power,
             maxTorque: torque,
             maxOverrun: dynamic.overrun,
