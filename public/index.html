@@ -571,7 +571,8 @@
                             <p class="hint">
                                 <strong>What is verified:</strong> the Fixed/Range behaviour of each mode, the adjustable Boost duration, and the M2 / M2S torque and power figures.<br>
                                 <strong>Community-confirmed:</strong> the 15-level support table (motor output as % of rider input, see the table above).<br>
-                                <strong>What is this project's own calibration:</strong> the per-mode level bands (ECO 1-7, AUTO 3-11, TRAIL 6-13, TURBO 8-15), the W/kg targets and the range/runtime estimate. These are tuning assumptions, not Avinox specifications.
+                                <strong>What is this project's own calibration:</strong> the per-mode level bands (ECO 1-7, AUTO 3-11, TRAIL 6-13, TURBO 8-15), the W/kg targets and the range/runtime estimate. These are tuning assumptions, not Avinox specifications.<br>
+                                <strong>How the runtime estimate works:</strong> it uses the expected draw at your rider input — the level's amplification times your power, bounded by Max Power and by the physical torque ceiling at your cadence — not the Max Power cap continuously. It is a personal estimate, not a guarantee.
                             </p>
                         </div>
                     </section>

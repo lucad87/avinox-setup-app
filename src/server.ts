@@ -275,6 +275,7 @@ interface ModeResult {
     torque: string;
     wkg: string;
     maxPower: number;
+    typicalPower: number;
     maxTorque: number;
     idealPower: number;
     idealTorque: number;
@@ -320,7 +321,16 @@ function buildMode(
         );
     }
 
-    const metrics = calculateMetrics(maxPower, speedKmH, batteryWh);
+    // Expected draw at the rider's typical input: the level's amplification
+    // times the rider power, bounded by the configured Max Power and by the
+    // physical torque ceiling at the chosen cadence (P = T x rpm / 9.55).
+    // Runtime and range use this expected draw instead of assuming the motor
+    // rides at Max Power continuously.
+    const torqueCeiling = (bike.maxTorque * rpm) / 9.55;
+    const levelDraw = ratioOfLevel(assistMax) * pRider;
+    const typicalPower = Math.round(Math.min(maxPower, torqueCeiling, levelDraw));
+
+    const metrics = calculateMetrics(typicalPower, speedKmH, batteryWh);
 
     return {
         key: bp.key,
@@ -337,6 +347,7 @@ function buildMode(
         torque: `${maxTorque} Nm`,
         wkg: (maxPower / totalWeight).toFixed(2),
         maxPower,
+        typicalPower,
         maxTorque,
         idealPower,
         idealTorque: round(idealTorque),
