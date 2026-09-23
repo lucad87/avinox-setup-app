@@ -554,6 +554,56 @@
                                 does not display these percentages, so treat them as the best available
                                 reference, not an official DJI specification.
                             </p>
+                            <div class="kb-table-wrap">
+                                <table class="kb-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Stock mode</th>
+                                            <th>Level</th>
+                                            <th>Max torque</th>
+                                            <th>Max power</th>
+                                            <th>DJI est. range</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                            <td><span class="kb-mode-name"><span class="legend-dot" style="background: var(--mode-eco);"></span>ECO</span></td>
+                                            <td>Level 4 (150%)</td>
+                                            <td>50 Nm</td>
+                                            <td>~200 W</td>
+                                            <td>64 km</td>
+                                        </tr>
+                                        <tr>
+                                            <td><span class="kb-mode-name"><span class="legend-dot" style="background: var(--mode-auto);"></span>AUTO</span></td>
+                                            <td>Range 7-11 (245-515%)</td>
+                                            <td>130 Nm</td>
+                                            <td>1300 W</td>
+                                            <td>49 km</td>
+                                        </tr>
+                                        <tr>
+                                            <td><span class="kb-mode-name"><span class="legend-dot" style="background: var(--mode-trail);"></span>TRAIL</span></td>
+                                            <td>Range 9-11 (360-515%)</td>
+                                            <td>130 Nm</td>
+                                            <td>1300 W</td>
+                                            <td>45 km</td>
+                                        </tr>
+                                        <tr>
+                                            <td><span class="kb-mode-name"><span class="legend-dot" style="background: var(--mode-turbo);"></span>TURBO</span></td>
+                                            <td>Level 13 (700%)</td>
+                                            <td>130 Nm</td>
+                                            <td>1300 W</td>
+                                            <td>40 km</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                            <p class="hint">
+                                Stock mode defaults as shipped by the DJI app (screenshot-verified). Each
+                                stock mode can only use levels inside its own band — ECO 1-7, AUTO 3-11,
+                                TRAIL 6-13, TURBO 8-15 — the same bands this calculator uses. DJI's
+                                estimated ranges assume their own riding model; this calculator's
+                                estimates are independent and typically more conservative.
+                            </p>
                             <div class="kb-grid">
                                 <div class="kb-tile">
                                     <h4>Boost Duration</h4>
