@@ -192,7 +192,7 @@ async function updateSetup() {
                 title: m.name,
                 badges: [typeBadge, wkgBadge],
                 rows: [
-                    kvRow('Assist Bound:', m.data.level),
+                    kvRow('Assist Bound:', `${m.data.level}${m.data.levelPct ? ` <span class="kv-hint">· ${m.data.levelPct} of rider input</span>` : ''}`),
                     kvRow('Power Limit:', m.data.watts, powerHint),
                     kvRow('Max Torque:', m.data.torque, torqueHint),
                     kvRow('Max Overrun:', m.data.maxOverrun),
@@ -513,7 +513,7 @@ function renderRouteModes(res) {
                             <span class="badge badge-soft">Fixed</span>
                         </div>
                         <div class="kv">
-                            ${kvRow('Assist Level:', m.assistLevel)}
+                            ${kvRow('Assist Level:', `${m.assistLevel}${m.assistLevelPct ? ` <span class="kv-hint">· ${m.assistLevelPct} of rider input</span>` : ''}`)}
                             ${kvRow('Max Power:', m.maxPower + ' W')}
                             ${kvRow('Max Torque:', m.maxTorque + ' Nm')}
                             ${kvRow('Max Overrun:', m.maxOverrun)}
@@ -794,7 +794,7 @@ document.getElementById('missionForm').addEventListener('submit', async (e) => {
                 title: m.name,
                 badges: [`<span class="badge badge-mode-${m.key}">${m.data.wkg} W/kg</span>`],
                 rows: [
-                    kvRow('Assist Bound:', m.data.level),
+                    kvRow('Assist Bound:', `${m.data.level}${m.data.levelPct ? ` <span class="kv-hint">· ${m.data.levelPct} of rider input</span>` : ''}`),
                     kvRow('Power Limit:', m.data.watts),
                     kvRow('Max Torque:', m.data.torque)
                 ]

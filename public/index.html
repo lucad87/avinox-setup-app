@@ -520,6 +520,40 @@
                                     </tbody>
                                 </table>
                             </div>
+                            <div class="kb-table-wrap">
+                                <table class="kb-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Level</th>
+                                            <th>Motor output</th>
+                                            <th>Note</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr><td>1</td><td>35%</td><td></td></tr>
+                                        <tr><td>2</td><td>70%</td><td></td></tr>
+                                        <tr><td>3</td><td><strong>100%</strong></td><td>Anchor point</td></tr>
+                                        <tr><td>4</td><td><strong>150%</strong></td><td>Anchor point</td></tr>
+                                        <tr><td>5</td><td>185%</td><td></td></tr>
+                                        <tr><td>6</td><td>215%</td><td></td></tr>
+                                        <tr><td>7</td><td>245%</td><td></td></tr>
+                                        <tr><td>8</td><td><strong>300%</strong></td><td>Anchor point</td></tr>
+                                        <tr><td>9</td><td>360%</td><td></td></tr>
+                                        <tr><td>10</td><td>435%</td><td></td></tr>
+                                        <tr><td>11</td><td>515%</td><td></td></tr>
+                                        <tr><td>12</td><td>605%</td><td></td></tr>
+                                        <tr><td>13</td><td><strong>700%</strong></td><td>Anchor point</td></tr>
+                                        <tr><td>14</td><td>765%</td><td></td></tr>
+                                        <tr><td>15</td><td>800%</td><td></td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                            <p class="hint">
+                                Motor output as % of rider input, per assist level. Community-confirmed
+                                mapping (multiple independent users agree on the full curve); the DJI app
+                                does not display these percentages, so treat them as the best available
+                                reference, not an official DJI specification.
+                            </p>
                             <div class="kb-grid">
                                 <div class="kb-tile">
                                     <h4>Boost Duration</h4>
@@ -536,7 +570,8 @@
                             </div>
                             <p class="hint">
                                 <strong>What is verified:</strong> the Fixed/Range behaviour of each mode, the adjustable Boost duration, and the M2 / M2S torque and power figures.<br>
-                                <strong>What is this project's own calibration:</strong> the 15-level support table, the per-mode level bands (ECO 1-7, AUTO 3-11, TRAIL 6-13, TURBO 8-15), the W/kg targets and the range/runtime estimate. These are tuning assumptions, not Avinox specifications.
+                                <strong>Community-confirmed:</strong> the 15-level support table (motor output as % of rider input, see the table above).<br>
+                                <strong>What is this project's own calibration:</strong> the per-mode level bands (ECO 1-7, AUTO 3-11, TRAIL 6-13, TURBO 8-15), the W/kg targets and the range/runtime estimate. These are tuning assumptions, not Avinox specifications.
                             </p>
                         </div>
                     </section>
