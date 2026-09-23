@@ -184,6 +184,8 @@ async function updateSetup() {
                 : '';
             const powerHint = (m.data.idealPower !== m.data.maxPower)
                 ? ` <span class="kv-hint">(computed ${m.data.idealPower} W)</span>` : '';
+            const drawHint = (m.data.typicalPower < m.data.maxPower)
+                ? ` <span class="kv-hint">(expected draw ~${m.data.typicalPower} W at your input)</span>` : '';
             const torqueHint = (m.data.idealTorque !== m.data.maxTorque)
                 ? ` <span class="kv-hint">(computed ${m.data.idealTorque} Nm)</span>` : '';
 
@@ -193,7 +195,7 @@ async function updateSetup() {
                 badges: [typeBadge, wkgBadge],
                 rows: [
                     kvRow('Assist Bound:', `${m.data.level}${m.data.levelPct ? ` <span class="kv-hint">· ${m.data.levelPct} of rider input</span>` : ''}`),
-                    kvRow('Power Limit:', m.data.watts, powerHint),
+                    kvRow('Power Limit:', m.data.watts, powerHint + drawHint),
                     kvRow('Max Torque:', m.data.torque, torqueHint),
                     kvRow('Max Overrun:', m.data.maxOverrun),
                     kvRow('Assist Start:', m.data.assistStart),
