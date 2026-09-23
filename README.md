@@ -77,3 +77,8 @@ docker run -p 3000:3080 avinox-setup-app
 ```
 
 The app listens on port **3080** in development; the Dockerfile exposes port **3000** for convenience.
+
+## License
+
+Released under the [MIT License](LICENSE) — © 2026 Luca Donnaloia.
+If you reuse or fork this project, keep the copyright notice and consider crediting [Avinox Calc](https://avinox-calculator.lucad.cloud/).
