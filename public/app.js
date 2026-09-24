@@ -3,6 +3,217 @@ let runtimeChartInstance = null;
 let missionPieChartInstance = null;
 let stockChartInstance = null;
 
+/* ---- Personal calibration (Phase 2A) ----------------------------------- */
+/* A real ride (.proto) is parsed locally and compared against the model:   */
+/* actual motor energy vs the energy the community table would predict for  */
+/* the same rider input. The ratio becomes a personal factor applied to the */
+/* runtime/range estimates (factor > 1 → the user's bike draws more than    */
+/* the table predicts → estimates shrink).                                  */
+
+const CALIBRATION_KEY = 'avinox-calibration';
+const FORM_KEY = 'avinox-form';
+
+function getCalibration() {
+    try {
+        const raw = localStorage.getItem(CALIBRATION_KEY);
+        const c = raw ? JSON.parse(raw) : null;
+        return (c && c.factor > 0 && c.factor < 5) ? c : null;
+    } catch (e) { return null; }
+}
+
+function setCalibration(cal) {
+    try {
+        if (cal) localStorage.setItem(CALIBRATION_KEY, JSON.stringify(cal));
+        else localStorage.removeItem(CALIBRATION_KEY);
+    } catch (e) { /* ignore */ }
+    renderCalibrationState();
+}
+
+function renderCalibrationState() {
+    const badge = document.getElementById('calibrationBadge');
+    const report = document.getElementById('calibrationReport');
+    if (!badge || !report) return;
+    const cal = getCalibration();
+    if (cal) {
+        badge.classList.remove('hidden');
+        badge.innerText = 'estimates ×' + (1 / cal.factor).toFixed(2);
+        report.classList.remove('hidden');
+        report.innerHTML =
+            '<div class="card"><div class="card-body kv-compact">' +
+            kvRow('Calibrated on:', cal.rideLabel) +
+            kvRow('Real motor energy:', cal.actualWh + ' Wh') +
+            kvRow('Model prediction:', cal.modelWh + ' Wh') +
+            kvRow('Personal factor:', '×' + cal.factor.toFixed(2)) +
+            '</div></div>' +
+            '<button type="button" id="calibrationReset" class="mini-btn">Remove calibration</button>';
+        document.getElementById('calibrationReset').addEventListener('click', () => setCalibration(null));
+    } else {
+        badge.classList.add('hidden');
+        report.classList.add('hidden');
+        report.innerHTML = '';
+    }
+}
+
+function analyzeRideForCalibration(parsed) {
+    const samples = parsed.samples.filter((s) => s && s.timestamp && s.assist != null);
+    if (samples.length < 10) throw Error('Not enough samples in this ride file.');
+
+    /* Per-level aggregation with sample-interval weighting. */
+    const byLevel = {};
+    let actualWh = 0, modelWh = 0, distanceKm = 0, batteryStart = null, batteryEnd = null;
+    const bikeMaxPower = 1300; // physical ceiling used by the model comparison
+
+    for (let i = 0; i < samples.length; i++) {
+        const s = samples[i];
+        const prev = i > 0 ? samples[i - 1] : null;
+        const dt = prev && s.timestamp > prev.timestamp ? Math.min((s.timestamp - prev.timestamp), 10) : 1;
+        if (s.battery != null) {
+            if (batteryStart === null) batteryStart = s.battery;
+            batteryEnd = s.battery;
+        }
+        distanceKm = Math.max(distanceKm, s.distanceKm || 0);
+
+        const lvl = s.assist;
+        if (!byLevel[lvl]) byLevel[lvl] = { level: lvl, seconds: 0, riderWh: 0, motorWh: 0, samples: 0 };
+        const b = byLevel[lvl];
+        b.seconds += dt;
+        b.samples++;
+
+        const riderW = s.riderPower || 0, motorW = s.motorPower || 0;
+        b.riderWh += riderW * dt / 3600;
+        b.motorWh += motorW * dt / 3600;
+        actualWh += motorW * dt / 3600;
+
+        /* What the community table would deliver for the same rider input. */
+        const modelMotor = Math.min(ratioOfLevelClient(lvl) * riderW, bikeMaxPower);
+        modelWh += modelMotor * dt / 3600;
+    }
+
+    const levels = Object.values(byLevel)
+        .filter((b) => b.seconds > 5)
+        .sort((a, b) => a.level - b.level);
+    if (!levels.length) throw Error('No meaningful assist samples in this ride.');
+
+    const factor = actualWh > 1 ? actualWh / modelWh : 1;
+    return {
+        summary: {
+            fileName: parsed.metadata.fileName,
+            date: parsed.metadata.start ? new Date(parsed.metadata.start * 1000).toLocaleString() : '—',
+            durationH: (parsed.metadata.duration / 3600).toFixed(2),
+            distanceKm: distanceKm.toFixed(1),
+            batteryStart, batteryEnd,
+            actualWh: Math.round(actualWh),
+            modelWh: Math.round(modelWh),
+            factor: Math.round(factor * 100) / 100
+        },
+        levels
+    };
+}
+
+/* Client-side copy of the community level table (kept in sync with the
+   server's ASSIST_LEVELS) so the comparison works without a round-trip. */
+function ratioOfLevelClient(level) {
+    const table = { 1: 0.35, 2: 0.70, 3: 1.00, 4: 1.50, 5: 1.85, 6: 2.15, 7: 2.45, 8: 3.00, 9: 3.60, 10: 4.35, 11: 5.15, 12: 6.05, 13: 7.00, 14: 7.65, 15: 8.00 };
+    return table[level] || 0;
+}
+
+function initCalibration() {
+    const btn = document.getElementById('protoLoadBtn');
+    const input = document.getElementById('protoInput');
+    const status = document.getElementById('calibrationStatus');
+    if (!btn || !input) return;
+
+    btn.addEventListener('click', () => input.click());
+    input.addEventListener('change', () => {
+        const file = input.files && input.files[0];
+        if (!file) return;
+        status.className = 'file-status status-info';
+        status.innerText = 'Reading ' + file.name + '…';
+        file.arrayBuffer().then((buf) => {
+            let parsed;
+            try {
+                parsed = AvinoxProtoParser.parse(buf, file.name);
+            } catch (err) {
+                status.className = 'file-status status-error';
+                status.innerText = err.message;
+                return;
+            }
+            try {
+                const analysis = analyzeRideForCalibration(parsed);
+                const cal = {
+                    factor: analysis.summary.factor,
+                    actualWh: analysis.summary.actualWh,
+                    modelWh: analysis.summary.modelWh,
+                    rideLabel: analysis.summary.date + ' · ' + analysis.summary.distanceKm + ' km'
+                };
+                setCalibration(cal);
+                status.className = 'file-status status-ok';
+                status.innerText = 'Ride parsed — ' + parsed.metadata.samples + ' samples.';
+                renderCalibrationReport(analysis);
+            } catch (err) {
+                status.className = 'file-status status-error';
+                status.innerText = err.message;
+            }
+        }).catch(() => {
+            status.className = 'file-status status-error';
+            status.innerText = 'Could not read the file.';
+        });
+        input.value = '';
+    });
+    renderCalibrationState();
+}
+
+function renderCalibrationReport(analysis) {
+    const report = document.getElementById('calibrationReport');
+    if (!report) return;
+    const s = analysis.summary;
+    const rows = analysis.levels.map((b) =>
+        '<tr><td>Level ' + b.level + '</td><td>' + Math.round(b.seconds / 60) + ' min</td>' +
+        '<td>' + Math.round(b.seconds > 0 ? b.riderWh / (b.seconds / 3600) : 0) + ' W</td>' +
+        '<td>' + Math.round(b.seconds > 0 ? b.motorWh / (b.seconds / 3600) : 0) + ' W</td>' +
+        '<td>' + b.motorWh.toFixed(0) + ' Wh</td></tr>'
+    ).join('');
+    report.classList.remove('hidden');
+    report.innerHTML =
+        '<div class="card"><div class="card-body kv-compact">' +
+        kvRow('Ride date:', s.date) +
+        kvRow('Duration / distance:', s.durationH + ' h / ' + s.distanceKm + ' km') +
+        kvRow('Battery start / finish:', (s.batteryStart ?? '—') + ' / ' + (s.batteryEnd ?? '—') + ' %') +
+        kvRow('Real motor energy:', s.actualWh + ' Wh') +
+        kvRow('Model prediction:', s.modelWh + ' Wh') +
+        kvRow('Personal factor:', '×' + s.factor.toFixed(2)) +
+        '</div></div>' +
+        '<div class="kb-table-wrap"><table class="kb-table"><thead><tr>' +
+        '<th>Level</th><th>Time</th><th>Avg rider</th><th>Avg motor</th><th>Energy</th>' +
+        '</tr></thead><tbody>' + rows + '</tbody></table></div>' +
+        '<p class="hint">Estimates are now scaled by 1/' + s.factor.toFixed(2) + ' = ×' + (1 / s.factor).toFixed(2) + '. Remove the calibration to return to the generic model.</p>';
+}
+
+/* ---- Form persistence (Phase 1) ---------------------------------------- */
+
+const FORM_FIELDS = ['bike', 'batteryWh', 'boostDuration', 'riderWeight', 'bikeWeight', 'cadence', 'riderPower', 'ecoWkg', 'autoWkg', 'trailWkg', 'turboWkg'];
+
+function restoreForm() {
+    try {
+        const saved = JSON.parse(localStorage.getItem(FORM_KEY) || '{}');
+        FORM_FIELDS.forEach((id) => {
+            const el = document.getElementById(id);
+            if (el && saved[id] != null && saved[id] !== '') el.value = saved[id];
+        });
+    } catch (e) { /* ignore */ }
+}
+
+function saveForm() {
+    try {
+        const data = {};
+        FORM_FIELDS.forEach((id) => {
+            const el = document.getElementById(id);
+            if (el) data[id] = el.value;
+        });
+        localStorage.setItem(FORM_KEY, JSON.stringify(data));
+    } catch (e) { /* ignore */ }
+}
+
 /* ---- Template helpers (G4): shared markup for the result cards --------- */
 
 function kvRow(label, value, hint) {
@@ -198,6 +409,9 @@ async function updateSetup() {
     try {
         const response = await axios.post('/api/calculate', data);
         const res = response.data;
+        saveForm();
+        const cal = getCalibration();
+        const calFactor = cal ? 1 / cal.factor : 1;
         document.getElementById('sysWeight').innerText = 'Total Weight: ' + res.totalWeight + ' kg';
         
         const modes = [
@@ -251,12 +465,12 @@ async function updateSetup() {
             : '';
 
         initCharts(
-            [res.eco.range, res.auto.range, res.trail.range, res.turbo.range],
-            [res.eco.runtime, res.auto.runtime, res.trail.runtime, res.turbo.runtime]
+            [res.eco.range, res.auto.range, res.trail.range, res.turbo.range].map((v) => v * calFactor),
+            [res.eco.runtime, res.auto.runtime, res.trail.runtime, res.turbo.runtime].map((v) => v * calFactor)
         );
         initStockChart(
             res.stock || [],
-            [res.eco.runtime, res.auto.runtime, res.trail.runtime, res.turbo.runtime]
+            [res.eco.runtime, res.auto.runtime, res.trail.runtime, res.turbo.runtime].map((v) => v * calFactor)
         );
     } catch (err) {
         console.error(err);
@@ -840,7 +1054,14 @@ document.getElementById('missionForm').addEventListener('submit', async (e) => {
     }
 });
 
-window.addEventListener('DOMContentLoaded', updateSetup);
+window.addEventListener('DOMContentLoaded', () => {
+    restoreForm();
+    updateSetup();
+    initCalibration();
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('/sw.js').catch(() => { /* offline support unavailable */ });
+    }
+});
 
 /* Theme toggle (dark variant): persists the choice and re-renders the
    charts, which read their colours from the CSS custom properties. */

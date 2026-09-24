@@ -9,10 +9,12 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-32.png">
     <link rel="apple-touch-icon" href="/assets/favicon-180.png">
     <meta name="theme-color" content="#F2F0E8">
+    <link rel="manifest" href="/manifest.webmanifest">
     <meta name="description" content="Custom assist mode setup and route planning for DJI Avinox M2 and M2S e-bike motors.">
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="/route-file.js"></script>
+    <script src="/avinox-proto-parser.js"></script>
     <link rel="stylesheet" href="/styles.css">
     <script>
         /* Apply the saved (or system) theme before first paint to avoid a flash. */
@@ -216,6 +218,21 @@
                         <p class="hint chart-hint">Stock modes: DJI app defaults (ECO Level 4 · 200 W, AUTO 7-11, TRAIL 9-11, TURBO Level 13 · 1300 W), same rider model.</p>
                     </div>
 
+                    <details class="collapsible" id="calibrationPanel">
+                        <summary>
+                            <span class="collapsible-title">Calibrate from a real ride (.proto)</span>
+                            <span id="calibrationBadge" class="hidden badge badge-ok">calibrated</span>
+                            <span class="collapsible-chevron">▸</span>
+                        </summary>
+                        <div class="calibration-body">
+                            <p class="hint">Load an Avinox ride recording (<code>cloud_ride_rec_*.proto</code>, synced by the DJI app to your phone). Parsed locally — the file never leaves your device. The analysis compares the real motor energy with the model's prediction and adjusts the runtime/range estimates.</p>
+                            <input type="file" id="protoInput" accept=".proto" class="hidden">
+                            <button type="button" id="protoLoadBtn" class="btn btn-ghost btn-sm">Load ride file</button>
+                            <div id="calibrationStatus" class="file-status" aria-live="polite"></div>
+                            <div id="calibrationReport" class="hidden"></div>
+                        </div>
+                    </details>
+
                 </div>
             </main>
         </div>
@@ -274,7 +291,7 @@
                                         <p class="hint">or click to choose</p>
                                     </div>
                                     <input type="file" id="routeFileInput" accept=".gpx,.kml,application/gpx+xml,application/vnd.google-earth.kml+xml" class="hidden">
-                                    <p class="hint">Parsed on your device — coordinates are never uploaded.</p>
+                                    <p class="privacy-badge">Parsed on your device — coordinates are never uploaded.</p>
                                     <div id="fileStatus" class="file-status" aria-live="polite"></div>
                                     <details id="geometryPanel" class="collapsible">
                                         <summary>
