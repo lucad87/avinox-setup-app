@@ -534,8 +534,32 @@ a { color: var(--accent); }
 .status-ok { color: var(--ok); }
 .status-error { color: var(--danger-text); }
 
-/* Chip informativo (dipendenza Route Simulator ← Engine Tuner) */
-.setup-chip {
+/* Badge privacy (parsing locale) */
+.privacy-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+    padding: .3rem .55rem;
+    background: var(--accent-soft);
+    border: 1px solid #BCD9A6;
+    border-radius: var(--r-sm);
+    font-size: 11px;
+    font-weight: 650;
+    color: var(--ok);
+}
+
+/* Card calibrazione da giro reale */
+.calibration-body {
+    display: flex;
+    flex-direction: column;
+    gap: .6rem;
+    padding: .7rem .8rem;
+    border-top: 1px solid var(--border);
+    background: var(--surface-2);
+}
+.calibration-body .kv-compact { background: var(--surface); }
+
+/* Chip informativo (dipendenza Route Simulator ← Engine Tuner) */.setup-chip {
     display: inline-flex;
     align-items: center;
     gap: .45rem;
