@@ -55,8 +55,11 @@ function renderCalibrationState() {
 }
 
 function analyzeRideForCalibration(parsed) {
-    const samples = parsed.samples.filter((s) => s && s.timestamp && s.assist != null);
-    if (samples.length < 10) throw Error('Not enough samples in this ride file.');
+    /* Only levels 1-15 are comparable with the model: special values
+       (e.g. 20 = boost/walk) have no table ratio and would skew the
+       factor. They are excluded from both sides of the comparison. */
+    const samples = parsed.samples.filter((s) => s && s.timestamp && s.assist >= 1 && s.assist <= 15);
+    if (samples.length < 10) throw Error('Not enough comparable samples in this ride file (levels 1-15).');
 
     /* Per-level aggregation with sample-interval weighting. */
     const byLevel = {};
@@ -124,40 +127,47 @@ function initCalibration() {
     if (!btn || !input) return;
 
     btn.addEventListener('click', () => input.click());
-    input.addEventListener('change', () => {
-        const file = input.files && input.files[0];
-        if (!file) return;
-        status.className = 'file-status status-info';
-        status.innerText = 'Reading ' + file.name + '…';
-        file.arrayBuffer().then((buf) => {
-            let parsed;
-            try {
-                parsed = AvinoxProtoParser.parse(buf, file.name);
-            } catch (err) {
-                status.className = 'file-status status-error';
-                status.innerText = err.message;
-                return;
+    input.addEventListener('change', async () => {
+        const files = Array.from(input.files || []);
+        if (!files.length) return;
+        try {
+            status.className = 'file-status status-info';
+            status.innerText = 'Reading ' + files.length + ' file(s)…';
+
+            const rides = [];
+            for (const file of files) {
+                const buf = await file.arrayBuffer();
+                rides.push(AvinoxProtoParser.parse(buf, file.name));
             }
-            try {
-                const analysis = analyzeRideForCalibration(parsed);
-                const cal = {
-                    factor: analysis.summary.factor,
-                    actualWh: analysis.summary.actualWh,
-                    modelWh: analysis.summary.modelWh,
-                    rideLabel: analysis.summary.date + ' · ' + analysis.summary.distanceKm + ' km'
-                };
-                setCalibration(cal);
-                status.className = 'file-status status-ok';
-                status.innerText = 'Ride parsed — ' + parsed.metadata.samples + ' samples.';
-                renderCalibrationReport(analysis);
-            } catch (err) {
-                status.className = 'file-status status-error';
-                status.innerText = err.message;
-            }
-        }).catch(() => {
+
+            /* Merge all rides into one analysis: more rides, better factor. */
+            const allSamples = rides.flatMap((r) => r.samples);
+            const earliest = rides.reduce((m, r) => Math.min(m, r.metadata.start), Infinity);
+            const merged = {
+                metadata: {
+                    fileName: files.length + ' ride file(s)',
+                    start: earliest,
+                    duration: rides.reduce((m, r) => m + r.metadata.duration, 0),
+                    samples: allSamples.length
+                },
+                samples: allSamples
+            };
+
+            const analysis = analyzeRideForCalibration(merged);
+            const cal = {
+                factor: analysis.summary.factor,
+                actualWh: analysis.summary.actualWh,
+                modelWh: analysis.summary.modelWh,
+                rideLabel: files.length + ' ride(s) · ' + analysis.summary.distanceKm + ' km'
+            };
+            setCalibration(cal);
+            status.className = 'file-status status-ok';
+            status.innerText = 'Parsed ' + rides.length + ' ride(s), ' + allSamples.length + ' samples.';
+            renderCalibrationReport(analysis);
+        } catch (err) {
             status.className = 'file-status status-error';
-            status.innerText = 'Could not read the file.';
-        });
+            status.innerText = err.message;
+        }
         input.value = '';
     });
     renderCalibrationState();

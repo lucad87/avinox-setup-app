@@ -40,7 +40,10 @@
     function f64(v) {
         if (v == null) return null;
         var b = new ArrayBuffer(8), d = new DataView(b);
-        d.setBigUint64(0, Number(v), true);
+        /* GPS doubles arrive as huge integers (varint or fixed64 bit
+           patterns) far above 2^53: keep them as BigInt end-to-end. */
+        var big = typeof v === 'bigint' ? v : BigInt(Math.round(v));
+        d.setBigUint64(0, big, true);
         return d.getFloat64(0, true);
     }
 

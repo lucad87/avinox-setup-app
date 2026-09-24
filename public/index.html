@@ -225,9 +225,12 @@
                             <span class="collapsible-chevron">▸</span>
                         </summary>
                         <div class="calibration-body">
-                            <p class="hint">Load an Avinox ride recording (<code>cloud_ride_rec_*.proto</code>, synced by the DJI app to your phone). Parsed locally — the file never leaves your device. The analysis compares the real motor energy with the model's prediction and adjusts the runtime/range estimates.</p>
-                            <input type="file" id="protoInput" accept=".proto" class="hidden">
-                            <button type="button" id="protoLoadBtn" class="btn btn-ghost btn-sm">Load ride file</button>
+                            <p class="hint">Load one or more Avinox ride recordings (<code>cloud_ride_rec_*.proto</code>). Parsed locally — the files never leave your device. The analysis compares the real motor energy with the model's prediction and adjusts the runtime/range estimates.</p>
+                            <p class="hint"><strong>Where are the files?</strong> The DJI app syncs rides to your phone under <code>Android/data/com.avinox.ride/files/ebike/data/</code> — a folder Android hides from file pickers. Easiest: connect the phone to a PC and copy the folder, or pull it straight into your phone's Download folder with
+                            <code>adb pull "/sdcard/Android/data/com.avinox.ride/files/ebike/data/" /sdcard/Download/</code>
+                            then load the files here.</p>
+                            <input type="file" id="protoInput" accept=".proto" multiple class="hidden">
+                            <button type="button" id="protoLoadBtn" class="btn btn-ghost btn-sm">Load ride file(s)</button>
                             <div id="calibrationStatus" class="file-status" aria-live="polite"></div>
                             <div id="calibrationReport" class="hidden"></div>
                         </div>
