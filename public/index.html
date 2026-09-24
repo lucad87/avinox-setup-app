@@ -194,15 +194,15 @@
                     <div class="result-grid cols-2" id="resultsGrid"></div>
 
                     <div class="chart-card">
+                        <h3 class="chart-title" id="rangeChartTitle">Estimated Max Range (km)</h3>
+                        <p class="hint chart-hint hidden" id="calibrationNote"></p>
                         <div class="chart-grid">
                             <div class="chart-box">
-                                <h3 class="chart-title" id="rangeChartTitle">Estimated Max Range (km)</h3>
                                 <div class="chart-area">
                                     <canvas id="rangeChart"></canvas>
                                 </div>
                             </div>
                             <div class="chart-box">
-                                <h3 class="chart-title">Continuous Motor Runtime (Hours)</h3>
                                 <div class="chart-area">
                                     <canvas id="runtimeChart"></canvas>
                                 </div>
@@ -233,6 +233,26 @@
                             <button type="button" id="protoLoadBtn" class="btn btn-ghost btn-sm">Load ride file(s)</button>
                             <div id="calibrationStatus" class="file-status" aria-live="polite"></div>
                             <div id="calibrationReport" class="hidden"></div>
+                            <div id="rideInsights" class="hidden">
+                                <div class="chart-grid">
+                                    <div class="chart-box">
+                                        <h3 class="chart-title">Power (W)</h3>
+                                        <div class="chart-area"><canvas id="ridePowerChart"></canvas></div>
+                                    </div>
+                                    <div class="chart-box">
+                                        <h3 class="chart-title">Speed (km/h) & Cadence (RPM)</h3>
+                                        <div class="chart-area"><canvas id="rideSpeedChart"></canvas></div>
+                                    </div>
+                                    <div class="chart-box">
+                                        <h3 class="chart-title">Battery (%) & Assist Level</h3>
+                                        <div class="chart-area"><canvas id="rideBatteryChart"></canvas></div>
+                                    </div>
+                                    <div class="chart-box">
+                                        <h3 class="chart-title">Energy by Assist Level (Wh)</h3>
+                                        <div class="chart-area"><canvas id="rideEnergyChart"></canvas></div>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </details>
 

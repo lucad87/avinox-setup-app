@@ -34,9 +34,15 @@ function renderCalibrationState() {
     const report = document.getElementById('calibrationReport');
     if (!badge || !report) return;
     const cal = getCalibration();
+    const note = document.getElementById('calibrationNote');
     if (cal) {
         badge.classList.remove('hidden');
         badge.innerText = 'estimates ×' + (1 / cal.factor).toFixed(2);
+        if (note) {
+            note.classList.remove('hidden');
+            note.innerText = 'Personal estimates — calibrated ×' + (1 / cal.factor).toFixed(2) +
+                ' on your rides (' + cal.actualWh + ' Wh real vs ' + cal.modelWh + ' Wh predicted).';
+        }
         report.classList.remove('hidden');
         report.innerHTML =
             '<div class="card"><div class="card-body kv-compact">' +
@@ -49,6 +55,7 @@ function renderCalibrationState() {
         document.getElementById('calibrationReset').addEventListener('click', () => setCalibration(null));
     } else {
         badge.classList.add('hidden');
+        if (note) note.classList.add('hidden');
         report.classList.add('hidden');
         report.innerHTML = '';
     }
@@ -77,7 +84,7 @@ function analyzeRideForCalibration(parsed) {
         distanceKm = Math.max(distanceKm, s.distanceKm || 0);
 
         const lvl = s.assist;
-        if (!byLevel[lvl]) byLevel[lvl] = { level: lvl, seconds: 0, riderWh: 0, motorWh: 0, samples: 0 };
+        if (!byLevel[lvl]) byLevel[lvl] = { level: lvl, seconds: 0, riderWh: 0, motorWh: 0, samples: 0, activeSeconds: 0, activeRiderWh: 0, activeMotorWh: 0 };
         const b = byLevel[lvl];
         b.seconds += dt;
         b.samples++;
@@ -86,6 +93,14 @@ function analyzeRideForCalibration(parsed) {
         b.riderWh += riderW * dt / 3600;
         b.motorWh += motorW * dt / 3600;
         actualWh += motorW * dt / 3600;
+
+        /* Active averages: only samples where the rider is actually
+           pedaling — otherwise coasting/stops dilute the averages. */
+        if (riderW > 20) {
+            b.activeSeconds += dt;
+            b.activeRiderWh += riderW * dt / 3600;
+            b.activeMotorWh += motorW * dt / 3600;
+        }
 
         /* What the community table would deliver for the same rider input. */
         const modelMotor = Math.min(ratioOfLevelClient(lvl) * riderW, bikeMaxPower);
@@ -97,6 +112,11 @@ function analyzeRideForCalibration(parsed) {
         .sort((a, b) => a.level - b.level);
     if (!levels.length) throw Error('No meaningful assist samples in this ride.');
 
+    /* Real rider profile: averages over active (pedaling) samples only. */
+    const active = samples.filter((s) => (s.riderPower || 0) > 20);
+    const avgRiderPower = active.length ? Math.round(active.reduce((a, s) => a + (s.riderPower || 0), 0) / active.length) : null;
+    const avgCadence = active.length ? Math.round(active.reduce((a, s) => a + (s.cadence || 0), 0) / active.length) : null;
+
     const factor = actualWh > 1 ? actualWh / modelWh : 1;
     return {
         summary: {
@@ -107,7 +127,9 @@ function analyzeRideForCalibration(parsed) {
             batteryStart, batteryEnd,
             actualWh: Math.round(actualWh),
             modelWh: Math.round(modelWh),
-            factor: Math.round(factor * 100) / 100
+            factor: Math.round(factor * 100) / 100,
+            avgRiderPower,
+            avgCadence
         },
         levels
     };
@@ -118,6 +140,117 @@ function analyzeRideForCalibration(parsed) {
 function ratioOfLevelClient(level) {
     const table = { 1: 0.35, 2: 0.70, 3: 1.00, 4: 1.50, 5: 1.85, 6: 2.15, 7: 2.45, 8: 3.00, 9: 3.60, 10: 4.35, 11: 5.15, 12: 6.05, 13: 7.00, 14: 7.65, 15: 8.00 };
     return table[level] || 0;
+}
+
+/* ---- Ride Insights (Phase 2A): sensor timelines + energy by level ----- */
+
+let ridePowerChart = null, rideSpeedChart = null, rideBatteryChart = null, rideEnergyChart = null;
+
+function renderRideInsights(parsed, analysis) {
+    const wrap = document.getElementById('rideInsights');
+    if (!wrap) return;
+    wrap.classList.remove('hidden');
+
+    const samples = parsed.samples.filter((s) => s && s.timestamp);
+    const t0 = samples[0].timestamp;
+    const labels = samples.map((s) => Math.round((s.timestamp - t0) / 60)); // minutes
+    const theme = chartTheme();
+
+    const lineOpts = (yTitle) => ({
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+            legend: { display: true, position: 'top', labels: { color: theme.tick, boxWidth: 12 } },
+            tooltip: { callbacks: { title: (items) => 'min ' + items[0].label } }
+        },
+        scales: {
+            x: { grid: { display: false }, ticks: { color: theme.tick, maxTicksLimit: 10, callback: (v) => v + 'm' } },
+            y: { grid: { color: theme.grid }, ticks: { color: theme.tick, font: { size: 10 } } }
+        }
+    });
+
+    const mk = (id, prev, cfg) => {
+        const ctx = document.getElementById(cfg.id).getContext('2d');
+        if (prev) prev.destroy();
+        return new Chart(ctx, cfg.chart);
+    };
+
+    ridePowerChart = mk('ridePowerChart', ridePowerChart, {
+        id: 'ridePowerChart',
+        chart: {
+            type: 'line',
+            data: {
+                labels,
+                datasets: [
+                    { label: 'Motor', data: samples.map((s) => s.motorPower), borderColor: theme.modeColors[3], backgroundColor: 'transparent', borderWidth: 1.5, pointRadius: 0, tension: 0.15 },
+                    { label: 'Rider', data: samples.map((s) => s.riderPower), borderColor: theme.modeColors[0], backgroundColor: 'transparent', borderWidth: 1.5, pointRadius: 0, tension: 0.15 }
+                ]
+            },
+            options: lineOpts()
+        }
+    });
+
+    rideSpeedChart = mk('rideSpeedChart', rideSpeedChart, {
+        id: 'rideSpeedChart',
+        chart: {
+            type: 'line',
+            data: {
+                labels,
+                datasets: [
+                    { label: 'Speed km/h', data: samples.map((s) => s.speed), borderColor: theme.modeColors[1], backgroundColor: 'transparent', borderWidth: 1.5, pointRadius: 0, tension: 0.15 },
+                    { label: 'Cadence RPM', data: samples.map((s) => s.cadence), borderColor: theme.modeColors[1], backgroundColor: 'transparent', borderWidth: 1, borderDash: [4, 3], pointRadius: 0, tension: 0.15 }
+                ]
+            },
+            options: lineOpts()
+        }
+    });
+
+    rideBatteryChart = mk('rideBatteryChart', rideBatteryChart, {
+        id: 'rideBatteryChart',
+        chart: {
+            type: 'line',
+            data: {
+                labels,
+                datasets: [
+                    { label: 'Battery %', data: samples.map((s) => s.battery), borderColor: theme.accent, backgroundColor: theme.accentFill, borderWidth: 1.5, pointRadius: 0, tension: 0.15, yAxisID: 'y' },
+                    { label: 'Assist level', data: samples.map((s) => s.assist), borderColor: theme.modeColors[2], backgroundColor: 'transparent', borderWidth: 1, stepped: true, pointRadius: 0, yAxisID: 'y1' }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
+                plugins: { legend: { position: 'top', labels: { color: theme.tick, boxWidth: 12 } } },
+                scales: {
+                    x: { grid: { display: false }, ticks: { color: theme.tick, maxTicksLimit: 10, callback: (v) => v + 'm' } },
+                    y: { min: 0, max: 100, grid: { color: theme.grid }, ticks: { color: theme.tick, font: { size: 10 } } }
+                }
+            }
+        }
+    });
+
+    /* Energy by assist level: where the battery actually went. */
+    const levels = analysis.levels;
+    rideEnergyChart = mk('rideEnergyChart', rideEnergyChart, {
+        id: 'rideEnergyChart',
+        chart: {
+            type: 'bar',
+            data: {
+                labels: levels.map((l) => 'L' + l.level),
+                datasets: [{ label: 'Motor energy (Wh)', data: levels.map((l) => Math.round(l.motorWh)), backgroundColor: theme.modeColors, borderRadius: 4 }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    x: { grid: { display: false }, ticks: { color: theme.tick, font: { size: 10, weight: 'bold' } } },
+                    y: { grid: { color: theme.grid }, ticks: { color: theme.tick, font: { size: 10 } } }
+                }
+            }
+        }
+    });
 }
 
 function initCalibration() {
@@ -164,6 +297,7 @@ function initCalibration() {
             status.className = 'file-status status-ok';
             status.innerText = 'Parsed ' + rides.length + ' ride(s), ' + allSamples.length + ' samples.';
             renderCalibrationReport(analysis);
+            renderRideInsights(merged, analysis);
         } catch (err) {
             status.className = 'file-status status-error';
             status.innerText = err.message;
@@ -173,30 +307,49 @@ function initCalibration() {
     renderCalibrationState();
 }
 
+let lastRideAnalysis = null;
+
 function renderCalibrationReport(analysis) {
     const report = document.getElementById('calibrationReport');
     if (!report) return;
+    lastRideAnalysis = analysis;
     const s = analysis.summary;
-    const rows = analysis.levels.map((b) =>
-        '<tr><td>Level ' + b.level + '</td><td>' + Math.round(b.seconds / 60) + ' min</td>' +
-        '<td>' + Math.round(b.seconds > 0 ? b.riderWh / (b.seconds / 3600) : 0) + ' W</td>' +
-        '<td>' + Math.round(b.seconds > 0 ? b.motorWh / (b.seconds / 3600) : 0) + ' W</td>' +
-        '<td>' + b.motorWh.toFixed(0) + ' Wh</td></tr>'
-    ).join('');
+    const rows = analysis.levels.map((b) => {
+        const riding = b.activeSeconds > 0 ? b.activeSeconds / 3600 : 0;
+        return '<tr><td>Level ' + b.level + '</td><td>' + Math.round(b.seconds / 60) + ' min</td>' +
+            '<td>' + Math.round(riding > 0 ? b.activeRiderWh / riding : 0) + ' W</td>' +
+            '<td>' + Math.round(riding > 0 ? b.activeMotorWh / riding : 0) + ' W</td>' +
+            '<td>' + Math.round(b.seconds > 0 ? b.riderWh / (b.seconds / 3600) : 0) + ' W</td>' +
+            '<td>' + b.motorWh.toFixed(0) + ' Wh</td></tr>';
+    }).join('');
     report.classList.remove('hidden');
     report.innerHTML =
         '<div class="card"><div class="card-body kv-compact">' +
         kvRow('Ride date:', s.date) +
         kvRow('Duration / distance:', s.durationH + ' h / ' + s.distanceKm + ' km') +
         kvRow('Battery start / finish:', (s.batteryStart ?? '—') + ' / ' + (s.batteryEnd ?? '—') + ' %') +
+        kvRow('Your real averages:', (s.avgCadence ?? '—') + ' RPM · ' + (s.avgRiderPower ?? '—') + ' W (while pedaling)') +
         kvRow('Real motor energy:', s.actualWh + ' Wh') +
         kvRow('Model prediction:', s.modelWh + ' Wh') +
         kvRow('Personal factor:', '×' + s.factor.toFixed(2)) +
         '</div></div>' +
         '<div class="kb-table-wrap"><table class="kb-table"><thead><tr>' +
-        '<th>Level</th><th>Time</th><th>Avg rider</th><th>Avg motor</th><th>Energy</th>' +
+        '<th>Level</th><th>Time</th><th>Rider W (riding)</th><th>Motor W (riding)</th><th>Rider W (total)</th><th>Energy</th>' +
         '</tr></thead><tbody>' + rows + '</tbody></table></div>' +
+        '<button type="button" id="useRideAverages" class="btn btn-ghost btn-sm"' +
+        ((s.avgCadence && s.avgRiderPower) ? '' : ' disabled') + '>Use ride averages' +
+        ((s.avgCadence && s.avgRiderPower) ? ' (' + s.avgCadence + ' RPM · ' + s.avgRiderPower + ' W)' : '') +
+        '</button>' +
         '<p class="hint">Estimates are now scaled by 1/' + s.factor.toFixed(2) + ' = ×' + (1 / s.factor).toFixed(2) + '. Remove the calibration to return to the generic model.</p>';
+    const useBtn = document.getElementById('useRideAverages');
+    if (useBtn && s.avgCadence && s.avgRiderPower) {
+        useBtn.addEventListener('click', () => {
+            document.getElementById('cadence').value = s.avgCadence;
+            document.getElementById('riderPower').value = s.avgRiderPower;
+            saveForm();
+            updateSetup();
+        });
+    }
 }
 
 /* ---- Form persistence (Phase 1) ---------------------------------------- */
@@ -449,6 +602,8 @@ async function updateSetup() {
                 ? ` <span class="kv-hint">(computed ${m.data.idealPower} W)</span>` : '';
             const drawHint = (m.data.typicalPower < m.data.maxPower)
                 ? ` <span class="kv-hint">(expected draw ~${m.data.typicalPower} W at your input)</span>` : '';
+            const calHint = calFactor !== 1
+                ? ` <span class="kv-hint">· estimates ×${calFactor.toFixed(2)} (calibrated)</span>` : '';
             const torqueHint = (m.data.idealTorque !== m.data.maxTorque)
                 ? ` <span class="kv-hint">(computed ${m.data.idealTorque} Nm)</span>` : '';
 
@@ -458,7 +613,7 @@ async function updateSetup() {
                 badges: [typeBadge, wkgBadge],
                 rows: [
                     kvRow('Assist Bound:', `${m.data.level}${m.data.levelPct ? ` <span class="kv-hint">· ${m.data.levelPct} of rider input</span>` : ''}`),
-                    kvRow('Power Limit:', m.data.watts, powerHint + drawHint),
+                    kvRow('Power Limit:', m.data.watts, powerHint + drawHint + calHint),
                     kvRow('Max Torque:', m.data.torque, torqueHint),
                     kvRow('Max Overrun:', m.data.maxOverrun),
                     kvRow('Assist Start:', m.data.assistStart),
