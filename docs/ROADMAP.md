@@ -122,3 +122,55 @@ Vincoli già individuati:
 - Lato server: nessuna modifica necessaria (i dati sono già tutti client-side
   dopo `/api/route-modes`).
 
+## Prossimo — Distanza di un giro: odometro vs traccia GPS 🔴 (verificato 26/09)
+
+Segnalato dall'utente: in un giro la card **Calibration** indica **20.8 km** e il
+pannello **Route → Distance** indica **19.3 km**. Stesso giro, due numeri.
+
+Causa verificata (non è un bug di calcolo, sono **due misure diverse**):
+
+- **20.8 km = odometro della bici** (campo distanza del `.proto`, cumulativo, letto
+  all'ultimo campione; è il numero che mostra anche l'app DJI). Base del Wh/km.
+- **19.3 km = somma delle posizioni GPS** del tracciato (`AvinoxRoute.computeStats`
+  → haversine fra fix consecutivi). Il GPS **sotto-stima** sempre un po': taglia le
+  curve, ignora i tratti senza fix e somma in 2D (la quota non entra nella distanza).
+
+Misurato sul file di prova `..._1005.proto` (12 696 campioni, 3h34, nessun gap):
+odometro **21.133 km** vs GPS **20.5 km** → **+3.1%**, con 5 620 punti duplicati
+uniti (a < 0.5 m, innocuo per la distanza). Il giro dell'utente è a **+7.8%** e ha
+**1 gap > 1 km**: lì il GPS perde il segnale e la linea retta fra i due fix
+sotto-stima ancora di più. Nota: i gap **non** vengono scartati — la loro distanza
+è inclusa e solo segnalata (`route-file.js`, `cleanPoints`), quindi la differenza
+non è "distanza mancante", è proprio GPS vs ruota.
+
+**Il problema da decidere**: per una **registrazione** il Wh/km è calcolato
+sull'odometro (giusto: energia sulla distanza reale, ed è il numero che vede
+l'utente nell'app DJI) ma il campo distanza del tab Route e la stima energetica
+usano la distanza **GPS** → la stima del giro è calcolata su una distanza più
+corta del 3–8% rispetto a quella a cui si riferisce il Wh/km. Su 13 Wh/km e 20 km
+sono ~30-60 Wh di errore.
+
+Proposta: per una **registrazione** usare l'**odometro** come distanza della route
+(mostrando la traccia GPS come hint secondario, "traccia GPS 19.3 km"), tenendo il
+GPS solo per pendenze, dislivello e profilo; per un **GPX/KML** non esiste odometro
+→ resta la somma GPS. Etichettare la sorgente della distanza dove compare (nella
+card Calibration e nel riepilogo della route), così i due numeri non sembrano più
+in contraddizione.
+
+## Prossimo — "Use ride averages" deve portare al Tuner 📋
+
+Richiesto dall'utente il 26/09, **da pensarci insieme**: oggi il bottone *Use ride
+averages* nella card Calibration scrive cadenza e rider power nei campi del Tuner e
+rilancia il calcolo, ma **resta sul tab Route**: l'utente non vede succedere nulla.
+Da valutare:
+
+- (a) cambio tab automatico su Tuner (come chiesto) + scroll in cima;
+- (b) restare dove si è ma con un riscontro esplicito ("valori applicati al Tuner"
+  + CTA "Vai al Tuner") — non perde il contesto dei grafici;
+- (c) entrambi: applica + avviso con azione.
+Precedente da tenere coerente: il bottone *Use my riding style & open Tuner* nel
+dialog "Rides analyzed" **già** cambia tab — quindi oggi le due vie si comportano
+diversamente.
+Da decidere anche: evidenziare i campi cambiati nel Tuner (per far vedere *cosa* è
+cambiato) e se il bottone debba stare nella card Calibration o solo nel dialog.
+
