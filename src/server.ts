@@ -275,6 +275,33 @@ function calculateMetrics(watts: number, speedKmH: number, batteryWh: number) {
     };
 }
 
+/* -------------------- REAL-RIDE CONSUMPTION MODEL ------------------- */
+/* When the client has parsed real rides it sends the measured motor
+   consumption (Wh per km) and the assist level that produced it. The
+   estimate then comes from the real data instead of "cap x hours":
+      pack Wh/km = motor Wh/km / PACK_EFFICIENCY
+      mode Wh/km = pack Wh/km x ratio(modeLevel) / ratio(referenceLevel)
+   extrapolated per level with the amplification table.                 */
+
+const PACK_EFFICIENCY = 0.8; // motor energy vs energy taken from the pack
+
+function realMetrics(
+    modeLevel: number,
+    realMotorWhPerKm: number,
+    realLevel: number,
+    batteryWh: number,
+    speedKmH: number
+) {
+    const refRatio = ratioOfLevel(realLevel) || 1;
+    const modeRatio = ratioOfLevel(modeLevel) || refRatio;
+    const packWhPerKm = (realMotorWhPerKm / PACK_EFFICIENCY) * (modeRatio / refRatio);
+    if (!Number.isFinite(packWhPerKm) || packWhPerKm <= 0) return null;
+    return {
+        runtime: parseFloat((batteryWh / (packWhPerKm * speedKmH)).toFixed(1)),
+        range: parseFloat((batteryWh / packWhPerKm).toFixed(0))
+    };
+}
+
 interface ModeResult {
     key: ModeKey;
     label: string;
@@ -301,6 +328,7 @@ interface ModeResult {
     runtime: number;
     achievable: boolean;
     warnings: string[];
+    basedOnRealRides?: boolean;
 }
 
 function buildMode(
@@ -497,6 +525,29 @@ app.post('/api/calculate', (req: Request, res: Response) => {
             : 'Full 1500 W Boost requires the FP700 (700 Wh) pack; with the selected battery peak output is lower.';
     }
 
+    // Real-ride calibration (optional): when the client has parsed rides it
+    // sends the measured motor consumption and the level that produced it.
+    // The range/runtime then come from the real data, not from "cap x hours".
+    const realWhPerKm = parseFloat(String(body.realWhPerKm));
+    const realLevel = parseFloat(String(body.realLevel));
+    const useReal = Number.isFinite(realWhPerKm) && realWhPerKm > 0
+        && Number.isFinite(realLevel) && realLevel >= 1 && realLevel <= 15;
+
+    if (useReal) {
+        const speeds: Record<ModeKey, number> = { eco: 22, auto: 18, trail: 14, turbo: 10 };
+        (['eco', 'auto', 'trail', 'turbo'] as ModeKey[]).forEach((k) => {
+            const level = k === 'eco' ? byKey.eco.assistMin
+                : k === 'turbo' ? byKey.turbo.assistMax
+                : byKey[k].assistMax;
+            const m = realMetrics(level, realWhPerKm, realLevel, batteryWh, speeds[k]);
+            if (m) {
+                byKey[k].range = m.range;
+                byKey[k].runtime = m.runtime;
+                byKey[k].basedOnRealRides = true;
+            }
+        });
+    }
+
     // Stock DJI modes (reference): expected draw with the same rider model,
     // using each stock mode's level, power cap and torque cap.
     const stock = STOCK_MODES.map((s) => {
@@ -506,7 +557,9 @@ app.post('/api/calculate', (req: Request, res: Response) => {
             (s.maxTorque * rpm) / 9.55
         ));
         const speed = { eco: 22, auto: 18, trail: 14, turbo: 10 }[s.key] ?? 15;
-        const m = calculateMetrics(stockTypical, speed, batteryWh);
+        const m = useReal
+            ? (realMetrics(s.level, realWhPerKm, realLevel, batteryWh, speed) || calculateMetrics(stockTypical, speed, batteryWh))
+            : calculateMetrics(stockTypical, speed, batteryWh);
         return { key: s.key, label: s.label, typicalPower: stockTypical, runtime: m.runtime, range: m.range };
     });
 
@@ -536,6 +589,7 @@ app.post('/api/calculate', (req: Request, res: Response) => {
         trail: byKey.trail,
         turbo: byKey.turbo,
         stock,
+        basedOnRealRides: useReal,
         warnings: globalWarnings
     });
 });
@@ -582,7 +636,23 @@ app.post('/api/calculate-mission', (req: Request, res: Response) => {
     const energyClimb = hm * 0.24 * (totalWeight / 100);
     const baseEnergy = energyFlat + energyClimb;
 
-    const energyEstimated = baseEnergy * surfaceFactor * steepnessFactor;
+    /* Real-ride personal factor: the client sends the measured motor
+       consumption (Wh/km) and the distance/elevation of the rides it was
+       measured on. Comparing that with what this model would predict for
+       the same rides gives a personal factor applied to the estimate. */
+    const realWhPerKm = parseFloat(String(body.realWhPerKm));
+    const realKm = parseFloat(String(body.realKm));
+    const realHm = parseFloat(String(body.realHm));
+    let personalFactor = 1;
+    const useReal = Number.isFinite(realWhPerKm) && realWhPerKm > 0
+        && Number.isFinite(realKm) && realKm > 1;
+    if (useReal) {
+        const modelWhForRides = realKm * 3.8 + (Number.isFinite(realHm) ? realHm : 0) * 0.24 * (totalWeight / 100);
+        const modelWhPerKm = modelWhForRides / realKm;
+        if (modelWhPerKm > 0.5) personalFactor = realWhPerKm / modelWhPerKm;
+    }
+
+    const energyEstimated = baseEnergy * surfaceFactor * steepnessFactor * personalFactor;
     const qualityId = String(body.elevationQuality);
     const margin = QUALITY_MARGIN[qualityId] ?? QUALITY_MARGIN.noisy;
     const energyLow = energyEstimated * (1 - margin);
@@ -682,6 +752,8 @@ app.post('/api/calculate-mission', (req: Request, res: Response) => {
         },
         surface: { id: surfaceId, factor: surfaceFactor },
         steepnessFactor,
+        personalFactor: Math.round(personalFactor * 100) / 100,
+        basedOnRealRides: useReal,
         reserve: { percent: reservePercent, wh: Math.round(reserveWh) },
         usableWh: Math.round(usableWh),
         confidence,
