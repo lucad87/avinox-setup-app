@@ -13,6 +13,10 @@
     <meta name="description" content="Custom assist mode setup and route planning for DJI Avinox M2 and M2S e-bike motors.">
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css">
     <script src="/route-file.js"></script>
     <script src="/avinox-proto-parser.js"></script>
     <link rel="stylesheet" href="/styles.css">
@@ -37,16 +41,18 @@
             </div>
             <nav class="tabs" role="tablist" aria-label="Avinox Calc workspaces">
                 <button id="tabCalcBtn" onclick="switchTab('calc')" class="tab is-active" role="tab" aria-selected="true" aria-controls="tabCalc">
-                    Engine Tuner
+                    Tuner
                 </button>
-                <button id="tabMissionBtn" onclick="switchTab('mission')" class="tab" role="tab" aria-selected="false" aria-controls="tabMission">
-                    Route Simulator
-                </button>
-                <button id="tabGuideBtn" onclick="switchTab('guide')" class="tab" role="tab" aria-selected="false" aria-controls="tabGuide">
-                    Knowledge Base
+                <button id="tabRouteBtn" onclick="switchTab('route')" class="tab" role="tab" aria-selected="false" aria-controls="tabRoute">
+                    Route
                 </button>
             </nav>
-            <button id="themeToggle" type="button" class="btn btn-ghost btn-sm theme-toggle" aria-label="Switch to dark mode"><span class="tt-icon">☾</span><span class="tt-label">Dark</span></button>
+            <div class="header-actions">
+                <button id="installApp" type="button" class="btn btn-primary btn-sm install-btn hidden" title="Install Avinox Calc">Install</button>
+                <button id="resetAppBtn" type="button" class="btn btn-ghost btn-sm reset-app" title="Reset the app: routes, rides, calibration and saved settings">Reset</button>
+                <button id="kbOpenBtn" type="button" class="btn btn-ghost btn-sm kb-open" aria-label="Open Knowledge Base" title="Knowledge Base">?</button>
+                <button id="themeToggle" type="button" class="btn btn-ghost btn-sm theme-toggle" aria-label="Switch to dark mode"><span class="tt-icon">☾</span><span class="tt-label">Dark</span></button>
+            </div>
         </header>
 
         <!-- ============================== Engine Tuner ============================== -->
@@ -58,6 +64,7 @@
                     <section class="card">
                         <div class="card-header">
                             <h2 class="card-title">Rider Variables</h2>
+                            <button type="button" id="resetDefaults" class="mini-btn" title="Restore default values">Reset</button>
                         </div>
                         <div class="card-body">
                             <form id="calcForm" class="form-stack">
@@ -218,77 +225,83 @@
                         <p class="hint chart-hint">Stock modes: DJI app defaults (ECO Level 4 · 200 W, AUTO 7-11, TRAIL 9-11, TURBO Level 13 · 1300 W), same rider model.</p>
                     </div>
 
-                    <details class="collapsible" id="calibrationPanel">
-                        <summary>
-                            <span class="collapsible-title">Calibrate from a real ride (.proto)</span>
-                            <span id="calibrationBadge" class="hidden badge badge-ok">calibrated</span>
-                            <span class="collapsible-chevron">▸</span>
-                        </summary>
-                        <div class="calibration-body">
-                            <p class="hint">Load one or more Avinox ride recordings (<code>cloud_ride_rec_*.proto</code>). Parsed locally — the files never leave your device. The analysis compares the real motor energy with the model's prediction and adjusts the runtime/range estimates.</p>
-                            <p class="hint"><strong>Where are the files?</strong> The DJI app syncs rides to your phone under <code>Android/data/com.avinox.ride/files/ebike/data/</code> — a folder Android hides from file pickers. Easiest: connect the phone to a PC and copy the folder, or pull it straight into your phone's Download folder with
-                            <code>adb pull "/sdcard/Android/data/com.avinox.ride/files/ebike/data/" /sdcard/Download/</code>
-                            then load the files here.</p>
-                            <input type="file" id="protoInput" accept=".proto" multiple class="hidden">
-                            <button type="button" id="protoLoadBtn" class="btn btn-ghost btn-sm">Load ride file(s)</button>
-                            <div id="calibrationStatus" class="file-status" aria-live="polite"></div>
-                            <div id="calibrationReport" class="hidden"></div>
-                            <div id="rideInsights" class="hidden">
-                                <div class="chart-grid">
-                                    <div class="chart-box">
-                                        <h3 class="chart-title">Power (W)</h3>
-                                        <div class="chart-area"><canvas id="ridePowerChart"></canvas></div>
-                                    </div>
-                                    <div class="chart-box">
-                                        <h3 class="chart-title">Speed (km/h) & Cadence (RPM)</h3>
-                                        <div class="chart-area"><canvas id="rideSpeedChart"></canvas></div>
-                                    </div>
-                                    <div class="chart-box">
-                                        <h3 class="chart-title">Battery (%) & Assist Level</h3>
-                                        <div class="chart-area"><canvas id="rideBatteryChart"></canvas></div>
-                                    </div>
-                                    <div class="chart-box">
-                                        <h3 class="chart-title">Energy by Assist Level (Wh)</h3>
-                                        <div class="chart-area"><canvas id="rideEnergyChart"></canvas></div>
-                                    </div>
-                                </div>
-                            </div>
+                    <div class="card calibration-status-card">
+                        <div class="card-body kv-compact">
+                            <div class="kv-row"><span class="kv-label">Calibration</span><span class="kv-value" id="tunerCalibrationState">not calibrated</span></div>
                         </div>
-                    </details>
+                    </div>
 
                 </div>
             </main>
         </div>
 
         <!-- ============================== Route Simulator ============================== -->
-        <div id="tabMission" class="hidden">
+        <div id="tabRoute" class="hidden">
+            <main class="workspace">
+                <div class="workspace-body rides-flow">
 
-            <aside class="sidebar">
-                <div class="sidebar-body">
-                    <section class="card">
+                    <section class="card rides-step">
                         <div class="card-header">
-                            <h2 class="card-title">Route Source</h2>
+                            <h2 class="card-title"><span class="step-num">1</span> Load a route</h2>
                         </div>
                         <div class="card-body">
-                            <p id="missionSetupChip" class="setup-chip">Using M2S · 800 Wh — set in Engine Tuner</p>
+                            <div id="routeDropZone" class="dropzone">
+                                <p>Drop a <strong>.gpx</strong> / <strong>.kml</strong> route or a <strong>.proto</strong> ride recording</p>
+                                <p class="hint">or click to choose — both are parsed on your device</p>
+                            </div>
+                            <input type="file" id="routeFileInput" accept=".gpx,.kml,.proto,application/gpx+xml,application/vnd.google-earth.kml+xml" multiple class="hidden">
+                            <details class="collapsible file-help">
+                                <summary><span class="collapsible-title">Where are the .proto ride files?</span><span class="collapsible-chevron">▸</span></summary>
+                                <ol class="file-help-steps">
+                                    <li>
+                                        Open the <strong>DJI Avinox app</strong> on your phone and make sure the rides are synced.
+                                    </li>
+                                    <li>
+                                        The recordings live in this folder — Android hides it from file managers:
+                                        <code class="code-block">Android/data/com.avinox.ride/files/ebike/data/</code>
+                                    </li>
+                                    <li>
+                                        Copy them to your PC over USB, or pull them straight into the phone's Download folder with:
+                                        <span class="code-row">
+                                            <code class="code-block">adb pull "/sdcard/Android/data/com.avinox.ride/files/ebike/data/" /sdcard/Download/</code>
+                                            <button type="button" id="copyAdb" class="mini-btn" title="Copy command">Copy</button>
+                                        </span>
+                                    </li>
+                                    <li>
+                                        Load the <code class="code-inline">cloud_ride_rec_*.proto</code> files here. A planned route is simply a <code class="code-inline">.gpx</code> or <code class="code-inline">.kml</code> export from any route planner.
+                                    </li>
+                                </ol>
+                            </details>
+                            <div id="fileStatus" class="file-status" aria-live="polite"></div>
+
+                            <div id="ridePickerRow" class="ride-picker hidden">
+                                <label class="kv-label" for="rideSelector">Ride</label>
+                                <select id="rideSelector" class="select" aria-label="Select ride"></select>
+                            </div>
+
+                            <details id="geometryPanel" class="collapsible hidden">
+                                <summary>
+                                    <span class="collapsible-title">Track segments</span>
+                                    <span id="geomCounter" class="hint"></span>
+                                    <span class="collapsible-chevron">▸</span>
+                                </summary>
+                                <div id="geometryPicker" class="hidden track-list"></div>
+                            </details>
+
+                            <div id="fileSummary" class="hidden summary-stack"></div>
+
                             <form id="missionForm" class="form-stack">
-                                <div class="segmented" role="group" aria-label="Route source">
-                                    <button type="button" id="srcManualBtn" onclick="setRouteSource('manual')"
-                                        class="is-active" aria-pressed="true">Manual</button>
-                                    <button type="button" id="srcFileBtn" onclick="setRouteSource('file')"
-                                        aria-pressed="false">Route file</button>
+                                <p id="missionSetupChip" class="setup-chip">Using M2S · 800 Wh — set in Engine Tuner</p>
+                                <div class="field-row">
+                                    <div class="field">
+                                        <label for="targetKm">Distance (km)</label>
+                                        <input type="number" id="targetKm" value="70" min="0.1" step="0.1" required class="input">
+                                    </div>
+                                    <div class="field">
+                                        <label for="targetH_m">Elevation gain (m)</label>
+                                        <input type="number" id="targetH_m" value="1500" min="0" step="1" required class="input">
+                                    </div>
                                 </div>
-
-                                <div class="field">
-                                    <label for="targetKm">Distance (km)</label>
-                                    <input type="number" id="targetKm" value="70" min="0.1" step="0.1" required class="input">
-                                </div>
-                                <div class="field">
-                                    <label for="targetH_m">Elevation gain (m)</label>
-                                    <input type="number" id="targetH_m" value="1500" min="0" step="1" required class="input">
-                                </div>
-                                <p class="hint">In <strong>Route file</strong> mode these are filled from the file and stay editable.</p>
-
                                 <div class="field-row">
                                     <div class="field">
                                         <label for="surface">Surface</label>
@@ -307,121 +320,157 @@
                                         </div>
                                     </div>
                                 </div>
-
-                                <div id="fileSource" class="hidden form-stack">
-                                    <div id="dropZone" class="dropzone">
-                                        <p>Drop a <strong>.gpx</strong> or <strong>.kml</strong> file here</p>
-                                        <p class="hint">or click to choose</p>
-                                    </div>
-                                    <input type="file" id="routeFileInput" accept=".gpx,.kml,application/gpx+xml,application/vnd.google-earth.kml+xml" class="hidden">
-                                    <p class="privacy-badge">Parsed on your device — coordinates are never uploaded.</p>
-                                    <div id="fileStatus" class="file-status" aria-live="polite"></div>
-                                    <details id="geometryPanel" class="collapsible">
-                                        <summary>
-                                            <span class="collapsible-title">Track segments</span>
-                                            <span id="geomCounter" class="hint"></span>
-                                            <span class="collapsible-chevron">▸</span>
-                                        </summary>
-                                        <div id="geometryPicker" class="hidden track-list"></div>
-                                    </details>
-                                    <div id="fileSummary" class="hidden summary-stack"></div>
-                                </div>
+                                <p class="hint">Distance and elevation are filled from the loaded file and stay editable; without a file, type them by hand.</p>
+                                <button type="submit" class="hidden">Analyze</button>
                             </form>
                         </div>
                         <div class="card-actions">
-                            <button type="submit" form="missionForm" class="btn btn-primary btn-block">
-                                Analyze Strategy
-                            </button>
+                            <button type="submit" form="missionForm" class="btn btn-primary btn-block">Analyze</button>
                         </div>
                     </section>
-                </div>
-            </aside>
 
-            <main class="workspace">
-                <div class="workspace-body">
+                    <div id="missionEmpty" class="empty-state">
+                        <h2 class="card-title">Load a route or a ride</h2>
+                        <p>Drop a planned route (<strong>.gpx</strong> / <strong>.kml</strong>) or a recorded ride (<strong>.proto</strong>) — or type a distance and elevation by hand — then press <strong>Analyze</strong>.</p>
+                        <p>You get the energy feasibility, the grade breakdown, the climbs and the assist modes this terrain calls for. A recorded ride also unlocks the map, the sensor graphs and the consumption calibration.</p>
+                    </div>
 
-                    <div class="summary-bar">
-                        <div>
+                    <div id="missionResults" class="hidden">
+                        <div class="summary-bar">
                             <h2 class="card-title">Energy Feasibility Status</h2>
+                            <div class="summary-bar-side">
+                                <span id="analysisSource" class="hint"></span>
+                                <span id="energyVerdict" class="badge badge-soft" aria-live="polite">--</span>
+                            </div>
                         </div>
-                        <span id="energyVerdict" class="badge badge-soft" aria-live="polite">--</span>
+
+                        <section class="card">
+                            <div class="card-body mission-overview">
+                                <div id="energyBreakdown" class="kv">
+                                    Enter route parameters and execute the analysis to compute the electrical projection.
+                                </div>
+                                <div class="pie-block">
+                                    <div class="pie-wrap">
+                                        <canvas id="missionPieChart"></canvas>
+                                    </div>
+                                    <div class="legend">
+                                        <span><span class="legend-dot" style="background: var(--mode-eco);"></span> ECO</span>
+                                        <span><span class="legend-dot" style="background: var(--mode-auto);"></span> AUTO</span>
+                                        <span><span class="legend-dot" style="background: var(--mode-trail);"></span> TRAIL</span>
+                                        <span><span class="legend-dot" style="background: var(--mode-turbo);"></span> TURBO</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </section>
+
+                        <div id="routeAnalysis" class="hidden workspace-section">
+                            <h3 class="section-title">Route Analysis</h3>
+                            <div id="gradeBars"></div>
+                            <div id="climbList"></div>
+                        </div>
+
+                        <div id="routeModes" class="hidden workspace-section">
+                            <h3 class="section-title">Proposed Route Modes</h3>
+                            <p class="hint">Custom modes use a <strong>fixed</strong> assist level, snapped to the app's entry grid (5 Nm / 50 W). Your base ECO/AUTO/TRAIL/TURBO settings stay in the Tuner.</p>
+                            <div class="result-grid" id="routeModesGrid"></div>
+                            <div id="routeModeNotes" class="route-notes"></div>
+                        </div>
+
+                        <div id="elevationPanel" class="hidden">
+                            <div class="chart-card">
+                                <h3 class="chart-title">Elevation Profile</h3>
+                                <div class="chart-box">
+                                    <div class="chart-area">
+                                        <canvas id="elevationChart"></canvas>
+                                    </div>
+                                </div>
+                                <p id="elevationNote" class="hint"></p>
+                            </div>
+                        </div>
                     </div>
 
-                    <section class="card">
-                        <div class="card-body mission-overview">
-                            <div id="energyBreakdown" class="kv">
-                                Enter route parameters and execute the analysis to compute the electrical projection.
-                            </div>
-                            <div class="pie-block">
-                                <div class="pie-wrap">
-                                    <canvas id="missionPieChart"></canvas>
-                                </div>
-                                <div class="legend">
-                                    <span><span class="legend-dot" style="background: var(--mode-eco);"></span> ECO</span>
-                                    <span><span class="legend-dot" style="background: var(--mode-auto);"></span> AUTO</span>
-                                    <span><span class="legend-dot" style="background: var(--mode-trail);"></span> TRAIL</span>
-                                    <span><span class="legend-dot" style="background: var(--mode-turbo);"></span> TURBO</span>
-                                </div>
-                            </div>
+                    <section id="rideInsights" class="card rides-step hidden">
+                        <div class="card-header">
+                            <h2 class="card-title"><span class="step-num">2</span> Ride data</h2>
+                            <label class="field ride-map-channel">
+                                <span class="kv-label">Colour route by</span>
+                                <select id="mapChannel" class="select">
+                                    <option value="speed" selected>Speed</option>
+                                    <option value="altitude">Altitude</option>
+                                    <option value="gradient">Gradient</option>
+                                    <option value="riderPower">Rider power</option>
+                                    <option value="motorPower">Motor power</option>
+                                    <option value="cadence">Cadence</option>
+                                    <option value="gear">Gear</option>
+                                    <option value="battery">Battery</option>
+                                    <option value="heartRate">Heart rate</option>
+                                </select>
+                            </label>
+                        </div>
+                        <div class="card-body">
+                            <div id="mapLegend" class="map-legend"></div>
+                            <div id="rideMap" class="ride-map"></div>
+                            <p class="hint">Drag on a graph to zoom · double-click to reset · hover to sync the cursor across graphs and the map · ⤢ enlarges · 📌 pins up to two graphs.</p>
+                            <div id="rideGraphs"></div>
                         </div>
                     </section>
 
-                    <section class="workspace-section">
-                        <h3 class="section-title">Recommended Safety Boundaries</h3>
-                        <div class="result-grid cols-2" id="missionGrid"></div>
+                    <section class="card rides-step hidden" id="ridesCalibration">
+                        <div class="card-header">
+                            <h2 class="card-title"><span class="step-num">3</span> <span id="calibrationTitleText">Calibration</span></h2>
+                        </div>
+                        <div class="card-body">
+                            <div id="calibrationBadge" class="hidden badge badge-ok">calibrated</div>
+                            <div id="calibrationSummary" class="hidden">
+                                <div class="kv">
+                                    <div class="kv-row"><span class="kv-label">Personal factor</span><span class="kv-value" id="calibrationFactor">—</span></div>
+                                    <div class="kv-row"><span class="kv-label">Calibrated on</span><span class="kv-value" id="calibrationSource">—</span></div>
+                                </div>
+                                <button type="button" id="calibrationReset" class="mini-btn">Remove calibration</button>
+                            </div>
+                            <p class="hint hidden" id="calibrationStandaloneNote">This factor was measured on the rides you loaded earlier and is stored on this device: it stays applied to the Tuner, to this analysis and to every route you plan, even now that the recordings are no longer loaded. <strong>Remove calibration</strong> goes back to the generic model.</p>
+                            <p class="hint" id="calibrationEmpty">Ride the bike with the modes you set in the Tuner, then load the recordings here. The real motor energy of your rides, compared with what the model would predict, becomes a personal factor applied to every range, runtime and energy estimate.</p>
+                            <div id="calibrationReport" class="hidden"></div>
+                        </div>
                     </section>
 
-                    <div id="routeAnalysis" class="hidden workspace-section">
-                        <h3 class="section-title">Route Analysis</h3>
-                        <div id="gradeBars"></div>
-                        <div id="climbList"></div>
-                    </div>
-
-                    <div id="routeModes" class="hidden workspace-section">
-                        <h3 class="section-title">Proposed Route Modes</h3>
-                        <p class="hint">Custom modes use a <strong>fixed</strong> assist level. Values are already snapped to the app's entry grid (5 Nm / 50 W).</p>
-                        <div class="result-grid" id="routeModesGrid"></div>
-                        <div id="routeModeNotes" class="route-notes"></div>
-                    </div>
-
-                    <div id="elevationPanel" class="hidden">
-                        <div class="chart-card">
-                            <h3 class="chart-title">Elevation Profile</h3>
-                            <div class="chart-box">
-                                <div class="chart-area">
-                                    <canvas id="elevationChart"></canvas>
-                                </div>
-                            </div>
-                            <p id="elevationNote" class="hint"></p>
+                    <dialog id="chartModal" class="chart-modal">
+                        <div class="chart-modal-head">
+                            <h2 class="card-title" id="chartModalTitle">Chart</h2>
+                            <button type="button" id="chartModalClose" class="mini-btn" aria-label="Close">✕</button>
                         </div>
-                    </div>
+                        <div class="chart-modal-body">
+                            <canvas id="chartModalCanvas"></canvas>
+                        </div>
+                    </dialog>
+
+                    <dialog id="rideSummaryDialog" class="ride-summary-dialog">
+                        <div class="kb-dialog-head">
+                            <h2 class="card-title">Rides analyzed</h2>
+                            <button type="button" id="rideSummaryClose" class="mini-btn" aria-label="Close">✕</button>
+                        </div>
+                        <div class="ride-summary-body" id="rideSummaryBody"></div>
+                        <div class="ride-summary-actions">
+                            <button type="button" id="rideSummaryView" class="btn btn-ghost">Show the ride data</button>
+                            <button type="button" id="rideSummaryApply" class="btn btn-primary">Use my riding style &amp; open Tuner</button>
+                        </div>
+                    </dialog>
 
                 </div>
             </main>
         </div>
 
         <!-- ============================== Knowledge Base ============================== -->
-        <div id="tabGuide" class="hidden">
-
-            <aside class="sidebar">
-                <div class="sidebar-body">
-                    <section class="card">
-                        <div class="card-header">
-                            <h2 class="card-title">Knowledge Base</h2>
-                        </div>
-                        <div class="card-body">
-                            <nav class="kb-nav" aria-label="Knowledge Base sections">
-                                <a href="#kb-quick">Quick Start</a>
-                                <a href="#kb-sliders">W/kg Sliders</a>
-                                <a href="#kb-parameters">Parameters</a>
-                                <a href="#kb-modes">Fixed vs Range</a>
-                                <a href="#kb-grid">Entry Grid</a>
-                                <a href="#kb-formula">Formula</a>
-                            </nav>
-                        </div>
-                    </section>
+        <dialog id="tabGuide" class="kb-dialog">
+            <div class="kb-dialog-head">
+                <h2 class="card-title">Knowledge Base</h2>
+                <div class="header-actions">
+                    <button type="button" id="kbCloseBtn" class="mini-btn" aria-label="Close Knowledge Base">✕</button>
                 </div>
-            </aside>
+            </div>
+
+            <main class="workspace">
+                <div class="workspace-body">
 
             <main class="workspace">
                 <div class="workspace-body">
@@ -429,35 +478,114 @@
                     <section id="kb-quick" class="kb-section card">
                         <div class="card-header">
                             <div>
-                                <h2 class="card-title">Quick Start Application Guide</h2>
-                                <p class="kb-subtitle">Follow these basic checkpoints to secure your ecosystem profile metrics</p>
+                                <h2 class="card-title">Quick Start — the two tabs</h2>
+                                <p class="kb-subtitle">How the app is meant to be used, from setting up to planning the next ride</p>
                             </div>
                         </div>
                         <div class="card-body">
-                            <div class="kb-grid kb-grid-4">
+                            <div class="kb-grid">
                                 <div class="kb-tile">
                                     <span class="kb-num">01.</span>
-                                    <h3>Input Data</h3>
-                                    <p>Pick your battery pack — integrated (600 / 700 / 800 Wh) or removable (RS600 / RS800) — and enter your total system weight including packed equipment.</p>
+                                    <h3>Tuner — set the bike up</h3>
+                                    <p>Enter rider/bike weight, cadence and power, pick a riding style (or the advanced W/kg sliders), then copy the suggested Level, Max Power and Max Torque into the official DJI Avinox app. The range and runtime charts show what those settings would give you.</p>
                                 </div>
                                 <div class="kb-tile">
                                     <span class="kb-num">02.</span>
-                                    <h3>Choose Style</h3>
-                                    <p>Click a pre-calculated shortcut card (Balanced, Marathon, Power) or unveil the advanced sliders to fine-tune inputs.</p>
+                                    <h3>Route — plan it, then replay it</h3>
+                                    <p>One place for both directions. Drop a <strong>planned route</strong> (<code class="code-inline">.gpx</code> / <code class="code-inline">.kml</code>) or a <strong>recorded ride</strong> (<code class="code-inline">cloud_ride_rec_*.proto</code> from the DJI app) — or type a distance and climb by hand — and press <strong>Analyze</strong>. You get the energy feasibility, the grade breakdown, the climbs and the assist modes the terrain calls for; a recording also unlocks the map, every sensor channel and the consumption calibration.</p>
                                 </div>
                                 <div class="kb-tile">
                                     <span class="kb-num">03.</span>
-                                    <h3>Transfer Metrics</h3>
-                                    <p>Open the official DJI Avinox app on your smartphone and mirror the mapped values of Watts, Nm and bound ranges.</p>
-                                </div>
-                                <div class="kb-tile">
-                                    <span class="kb-num">04.</span>
-                                    <h3>Simulate Loop</h3>
-                                    <p>Flip the console to the "Route Simulator" panel, insert terrain dimensions and run safety validation margins.</p>
+                                    <h3>The loop</h3>
+                                    <p>Configure in the Tuner, ride, load the recording in Route to see what really happened and calibrate, then plan the next route with your real consumption. Every ride makes the estimates a little more honest.</p>
                                 </div>
                             </div>
+                            <p class="hint">
+                                <strong>Two independent things are called "calibration" — they do different jobs.</strong>
+                                The <strong>real consumption</strong> (Wh/km) is measured automatically from your rides and scales the range/runtime estimates and the Route energy budget. <strong>Your riding style</strong> (average cadence and power) is applied only when you press <em>Use ride averages</em>, and it changes which assist levels are suggested — not the consumption model.
+                            </p>
                         </div>
                     </section>
+
+                    <section id="kb-rides" class="kb-section card">
+                        <div class="card-header">
+                            <div>
+                                <h2 class="card-title">Rides — real consumption and the map</h2>
+                                <p class="kb-subtitle">What the recordings contain, what the graphs show, and how the estimates become yours</p>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <h4>Getting the files</h4>
+                            <ol class="kb-steps">
+                                <li>Open the DJI Avinox app and make sure the rides you want are synced.</li>
+                                <li>The recordings live on the phone under <code class="code-block">Android/data/com.avinox.ride/files/ebike/data/</code> — a folder Android hides from file managers.</li>
+                                <li>Copy them to a PC over USB, or pull them into the phone's Download folder with <code class="code-block">adb pull "/sdcard/Android/data/com.avinox.ride/files/ebike/data/" /sdcard/Download/</code> and load them here.</li>
+                            </ol>
+                            <p class="hint">Everything is parsed in the browser: the files are never uploaded. Loading the same ride twice is recognised (by its ride id) and skipped. The library lives for the session — <em>Reset app</em> clears it.</p>
+
+                            <h4>Reading a ride</h4>
+                            <div class="kb-grid">
+                                <div class="kb-tile">
+                                    <h4>Map</h4>
+                                    <p>The track is drawn over OpenStreetMap and can be coloured by speed, altitude, gradient, rider/motor power, cadence, gear, battery or heart rate. The legend under the selector shows the value range.</p>
+                                </div>
+                                <div class="kb-tile">
+                                    <h4>Nine graphs</h4>
+                                    <p>Elevation &amp; gradient, speed &amp; cadence, power (rider/motor/total), torque, gear/heart/assist, battery &amp; environment, distance &amp; energy and the raw IMU channels — downsampled so the shape of the ride is readable rather than noisy.</p>
+                                </div>
+                                <div class="kb-tile">
+                                    <h4>Synchronised cursor</h4>
+                                    <p>Pointing at any graph draws the same time position on every graph and moves the marker on the map — and pointing at the track on the map moves the cursor back on the graphs.</p>
+                                </div>
+                                <div class="kb-tile">
+                                    <h4>Controls</h4>
+                                    <p>Drag on a graph to zoom (all graphs follow), double-click to reset, ⤢ enlarges a graph, 📌 pins up to two graphs so they stay visible while you scroll.</p>
+                                </div>
+                            </div>
+
+                            <h4>From data to estimates</h4>
+                            <p>
+                                The app measures the <strong>motor energy actually used per kilometre</strong> (Wh/km) over the rides loaded. Because each file restarts its distance counter at zero, the distances of all loaded rides are added up — so more rides give a steadier figure.
+                                The Tuner then projects each mode from that real consumption, scaling it by the mode's amplification factor, and reports it in the calibration card. Loading a recording also puts it straight into the route analysis: pick it in step 1 and it becomes the analyzed route.
+                            </p>
+                            <p class="hint">
+                                Curiosities worth knowing: the consumption is taken as motor Wh per km of riding (coasting included), while the per-level table shows averages only over the samples where you were actually pedalling — that is why the "riding" figures are higher than the "total" ones. Assist values outside 1–15 (e.g. boost or walk modes) are excluded from the model comparison.
+                            </p>
+                        </div>
+                    </section>
+
+                    <section id="kb-simulator" class="kb-section card">
+                        <div class="card-header">
+                            <div>
+                                <h2 class="card-title">Route — planning and replaying</h2>
+                                <p class="kb-subtitle">Energy feasibility and route-aware assist modes, from a planned track or a recorded ride</p>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div class="kb-grid">
+                                <div class="kb-tile">
+                                    <h4>Input</h4>
+                                    <p>Drop a GPX/KML route or a <code class="code-inline">.proto</code> recording — or type a distance and elevation gain by hand; with a file the fields are filled from it and stay editable. Surface type and the reserve you want left at the finish complete the picture.</p>
+                                </div>
+                                <div class="kb-tile">
+                                    <h4>Output</h4>
+                                    <p>The energy verdict (feasible or critical), the consumption breakdown, the usable battery after the reserve and, with a file or a recording, the grade bars, the detected climbs and an elevation profile.</p>
+                                </div>
+                                <div class="kb-tile">
+                                    <h4>Proposed route modes</h4>
+                                    <p>Custom modes are proposed only when the route justifies them: a climb mode when sustained climbs are detected, a technical mode when steep sections matter, an endurance mode for the rest. Each proposal carries the reasoning, and the values are already snapped to the app's entry grid.</p>
+                                </div>
+                                <div class="kb-tile">
+                                    <h4>Your consumption, not a generic one</h4>
+                                    <p>With rides loaded, the energy estimate is scaled by a personal factor: the app compares your measured Wh/km with what the model would have predicted for the same rides (shown as “scaled by your real rides ×0.86”). Without rides, the generic coefficients are used.</p>
+                                </div>
+                            </div>
+                            <p class="hint">
+                                <strong>Analyze a recorded ride:</strong> load the <code class="code-inline">.proto</code> files in step 1, pick the one you want in the <em>Ride</em> selector and press <em>Analyze</em> — distance, elevation, grade distribution and climbs are rebuilt from that ride's GPS, while step 2 shows its map and every sensor channel. One ride at a time: merging several tracks would join unrelated GPS points.
+                            </p>
+                        </div>
+                    </section>
+
 
                     <section id="kb-sliders" class="kb-section card">
                         <div class="card-header">
@@ -668,7 +796,7 @@
                                 <strong>What is verified:</strong> the Fixed/Range behaviour of each mode, the adjustable Boost duration, and the M2 / M2S torque and power figures.<br>
                                 <strong>Community-confirmed:</strong> the 15-level support table (motor output as % of rider input, see the table above).<br>
                                 <strong>What is this project's own calibration:</strong> the per-mode level bands (ECO 1-7, AUTO 3-11, TRAIL 6-13, TURBO 8-15), the W/kg targets and the range/runtime estimate. These are tuning assumptions, not Avinox specifications.<br>
-                                <strong>How the runtime estimate works:</strong> it uses the expected draw at your rider input — the level's amplification times your power, bounded by Max Power and by the physical torque ceiling at your cadence — not the Max Power cap continuously. It is a personal estimate, not a guarantee.
+                                <strong>How the runtime estimate works:</strong> with rides loaded it comes from your measured consumption (Wh/km), projected per mode by the level amplification; without rides it uses the expected draw at your rider input — the level's amplification times your power, bounded by Max Power and by the physical torque ceiling at your cadence. Either way it is a personal estimate, not a guarantee.
                             </p>
                         </div>
                     </section>
@@ -732,9 +860,41 @@
                         </div>
                     </section>
 
+                    <section id="kb-app" class="kb-section card">
+                        <div class="card-header">
+                            <div>
+                                <h2 class="card-title">The app itself</h2>
+                                <p class="kb-subtitle">Installing it, dark mode, saved settings and the reset</p>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div class="kb-grid">
+                                <div class="kb-tile">
+                                    <h4>Install on the phone</h4>
+                                    <p>On a mobile browser an <strong>Install</strong> button appears in the header: on Android/Chrome it opens the native install prompt, on iPhone/iPad it shows the Share → Add to Home Screen steps. Installed, the app opens full screen and its shell works offline.</p>
+                                </div>
+                                <div class="kb-tile">
+                                    <h4>Dark mode</h4>
+                                    <p>The ☾ button in the header switches theme; the choice is remembered between visits.</p>
+                                </div>
+                                <div class="kb-tile">
+                                    <h4>What is remembered</h4>
+                                    <p>Tuner values and W/kg sliders, the theme, the graph order and which graphs are pinned — all stored locally in the browser, never uploaded. The loaded rides live for the session only. <strong>The calibration is stored too</strong>: your measured Wh/km keeps scaling the Tuner, the Route analysis and every planned route even after the recordings are cleared or replaced — the <em>Saved calibration</em> card says so, and <em>Remove calibration</em> takes it back to the generic model.</p>
+                                </div>
+                                <div class="kb-tile">
+                                    <h4>Reset</h4>
+                                    <p><strong>Reset app</strong> (in the Route header or here, in this dialog) clears the loaded rides, the calibration, the route analysis and every saved setting, returning the app to its defaults.</p>
+                                </div>
+                            </div>
+                            <p class="hint">
+                                <strong>What the app does not know:</strong> your tyre pressure, your fitness on the day, wind, or how much you actually pedal when the trail points down. The estimates are projections from recorded data — useful for planning, not a promise for the trail.
+                            </p>
+                        </div>
+                    </section>
+
                 </div>
             </main>
-        </div>
+        </dialog>
 
     </div>
 

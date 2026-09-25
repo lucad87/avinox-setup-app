@@ -1,6 +1,6 @@
 # Avinox Calc — Roadmap
 
-Stato aggiornato: 2026-09-23 · versione corrente: **2.0.0**
+Stato aggiornato: 2026-09-26 · versione corrente: **2.0.0** (in merge il refactor UI v2.1: due tab, Tuner + Route)
 
 Legenda: ✅ fatto · 🚧 in corso · 📋 backlog · ❓ da verificare sul campo
 
@@ -76,3 +76,49 @@ gear, GPS, altitudine, pendenza, battito, temperatura, batteria).
   1300 W · 49 km — TRAIL 9-11 · 45 km — TURBO L13 · 1300 W · 40 km
 - Target W/kg default e modello di autonomia: calibrazione propria del progetto
   (dichiarata in KB)
+
+## Prossimo — Hand-off dei modi assistenza da Route al Tuner 📋
+
+Discusso il 26/09, da riprendere. Idea: poter **portare i modi proposti dal tab
+Route dentro il Tuner**, invece di ridigitare a mano i valori nell'app DJI.
+
+Dato di fatto che decide il progetto: le due parti espongono **gli stessi sei
+campi nello stesso ordine** — Assist Level, Max Power, Max Torque, Max Overrun,
+Assist Start, Continued Assist. Non serve quindi una traduzione: serve decidere
+*dove atterrano* i valori.
+
+Attenzione al malinteso di fondo: il Tuner è l'assetto **generale** (4 modi base
+ECO/AUTO/TRAIL/TURBO, *calcolati* dagli slider W/kg); Route propone 2-3 modi
+**custom, specifici per quel percorso** (livello fisso, etichetta e rationale
+propri, badge "Fixed"). Non sono gli stessi modi e non esiste un mapping 1:1.
+Verificato nel codice: le proposte di Route **non dipendono** dagli slider W/kg
+(la submit manda bici, batteria, pesi, cadenza, rider power — non ecoWkg…turboWkg),
+quindi copiarle sopra le 4 card base produrrebbe card che non corrispondono più
+ai loro slider.
+
+Tre opzioni:
+- **(a) blocco separato nel Tuner** — "Route setup — per `<file o giro>`, `<data>`"
+  in cima al workspace, con i modi arrivati da Route e il loro Copy per l'app DJI,
+  e una ✕ per scartarli. Le 4 card base restano intatte e oneste. *Raccomandata.*
+- **(b) solo "Copy all" in Route** — un unico blocco pronto da incollare, tutti i
+  modi in ordine, nessun trasferimento di stato. Passo minimo, zero rischio:
+  da fare per primo se il trasferimento al Tuner sembra troppo.
+- **(c) sovrascrivere le 4 card base / pilotare gli slider** dai valori di Route.
+  Sconsigliata: servirebbe la mappa inversa (target W e Nm → W/kg → livello /
+  potenza / coppia) e, siccome Route dà un **livello fisso** mentre il Tuner può
+  dare un **range**, il risultato può non coincidere con la proposta — un'altra
+  incoerenza da spiegare all'utente.
+
+Vincoli già individuati:
+- **Istantanea, non riferimento**: le proposte sono calcolate con il fattore
+  personale e le pendenze di *quel* file; se poi si rimuove la calibrazione o si
+  carica altro, i valori trasferiti non devono cambiare da soli (e con la mutua
+  esclusione route/ride già attiva, un riferimento "vivo" punterebbe a dati
+  cancellati).
+- Etichetta con la sorgente (file o giro + data) accanto ai valori, come fa già
+  "Analysis source" nel tab Route.
+- **Session-only**, coerente con le ride; il Reset nell'header lo pulisce.
+- Bottone sulle card di Route: "Use in Tuner" accanto al Copy esistente.
+- Lato server: nessuna modifica necessaria (i dati sono già tutti client-side
+  dopo `/api/route-modes`).
+

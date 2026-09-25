@@ -11,6 +11,7 @@ let stockChartInstance = null;
 /* the table predicts → estimates shrink).                                  */
 
 const CALIBRATION_KEY = 'avinox-calibration';
+let lastCalcRes = null;   // last /api/calculate response (before/after comparison)
 const FORM_KEY = 'avinox-form';
 
 function getCalibration() {
@@ -31,35 +32,928 @@ function setCalibration(cal) {
 
 function renderCalibrationState() {
     const badge = document.getElementById('calibrationBadge');
-    const report = document.getElementById('calibrationReport');
-    if (!badge || !report) return;
+    if (!badge) return;
     const cal = getCalibration();
     const note = document.getElementById('calibrationNote');
+    const tunerState = document.getElementById('tunerCalibrationState');
+    const summary = document.getElementById('calibrationSummary');
+    const emptyMsg = document.getElementById('calibrationEmpty');
+    const insights = document.getElementById('rideInsights');
+    const ridesCal = document.getElementById('ridesCalibration');
+
+    const hasRides = loadedRides.length > 0;
+    if (insights) insights.classList.toggle('hidden', !hasRides);
+    if (ridesCal) ridesCal.classList.toggle('hidden', !(hasRides || !!cal));
+    /* A calibration can outlive the rides it was measured on (it is stored
+       on the device). When it does, the card stays on screen, without the
+       step number, and says where the factor comes from. */
+    if (ridesCal) {
+        const standalone = !hasRides && !!cal;
+        ridesCal.classList.toggle('standalone', standalone);
+        const titleText = document.getElementById('calibrationTitleText');
+        if (titleText) titleText.innerText = standalone ? 'Saved calibration' : 'Calibration';
+        const standaloneNote = document.getElementById('calibrationStandaloneNote');
+        if (standaloneNote) standaloneNote.classList.toggle('hidden', !standalone);
+    }
+
     if (cal) {
         badge.classList.remove('hidden');
-        badge.innerText = 'estimates ×' + (1 / cal.factor).toFixed(2);
+        badge.innerText = cal.whPerKm ? cal.whPerKm + ' Wh/km' : 'calibrated';
+        if (tunerState) {
+            tunerState.innerText = (cal.whPerKm ? cal.whPerKm + ' Wh/km · ' : '') + cal.rideLabel;
+            tunerState.className = 'kv-value status-ok';
+        }
+        if (summary) summary.classList.remove('hidden');
+        if (emptyMsg) emptyMsg.classList.add('hidden');
+        const factorEl = document.getElementById('calibrationFactor');
+        const sourceEl = document.getElementById('calibrationSource');
+        if (factorEl) factorEl.innerText = cal.whPerKm ? cal.whPerKm + ' Wh/km' : '—';
+        if (sourceEl) sourceEl.innerText = cal.rideLabel;
         if (note) {
             note.classList.remove('hidden');
-            note.innerText = 'Personal estimates — calibrated ×' + (1 / cal.factor).toFixed(2) +
-                ' on your rides (' + cal.actualWh + ' Wh real vs ' + cal.modelWh + ' Wh predicted).';
+            note.innerText = 'Range and runtime come from your rides: ' +
+                (cal.whPerKm ?? '?') + ' Wh/km of motor energy, measured while riding at assist level ' +
+                (cal.avgLevel ?? '?') + '. Estimates are projected per mode from that real consumption.';
         }
-        report.classList.remove('hidden');
-        report.innerHTML =
-            '<div class="card"><div class="card-body kv-compact">' +
-            kvRow('Calibrated on:', cal.rideLabel) +
-            kvRow('Real motor energy:', cal.actualWh + ' Wh') +
-            kvRow('Model prediction:', cal.modelWh + ' Wh') +
-            kvRow('Personal factor:', '×' + cal.factor.toFixed(2)) +
-            '</div></div>' +
-            '<button type="button" id="calibrationReset" class="mini-btn">Remove calibration</button>';
-        document.getElementById('calibrationReset').addEventListener('click', () => setCalibration(null));
+        const resetBtn = document.getElementById('calibrationReset');
+        if (resetBtn && !resetBtn.dataset.wired) {
+            resetBtn.dataset.wired = '1';
+            resetBtn.addEventListener('click', () => {
+                setCalibration(null);
+                updateSetup(); // back to the model-based estimates
+                /* The visible analysis was scaled by that factor: recompute
+                   it, or the energy card would keep quoting a calibration
+                   that no longer exists. */
+                if (routeStats || loadedRides.length) {
+                    document.getElementById('missionForm')
+                        .dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+                }
+            });
+        }
     } else {
         badge.classList.add('hidden');
+        if (tunerState) {
+            tunerState.innerText = 'not calibrated';
+            tunerState.className = 'kv-value';
+        }
+        if (summary) summary.classList.add('hidden');
+        if (emptyMsg) emptyMsg.classList.remove('hidden');
         if (note) note.classList.add('hidden');
-        report.classList.add('hidden');
-        report.innerHTML = '';
     }
 }
+
+/* ---- Route map (MapLibre): coloured track + cursor-synced marker ---- */
+
+let rideMap = null;
+let rideMapPoints = [];       // downsampled route points (with lat/lon)
+
+const MAP_CHANNELS = {
+    speed: { label: 'km/h', get: (s) => s.speed, ramp: ['#276bc1', '#e06432'], step: 0 },
+    altitude: { label: 'm', get: (s) => s.altitude, ramp: ['#665d50', '#c9b18a'], step: 0 },
+    gradient: { label: '%', get: (s) => s.gradient, ramp: ['#2b6cb0', '#c0392b'], step: 0, symmetric: true },
+    riderPower: { label: 'W', get: (s) => s.riderPower, ramp: ['#f0c060', '#c0392b'], step: 0 },
+    motorPower: { label: 'W', get: (s) => s.motorPower, ramp: ['#c9b6e8', '#5c4290'], step: 0 },
+    cadence: { label: 'rpm', get: (s) => s.cadence, ramp: ['#9fd8c8', '#16a078'], step: 0 },
+    gear: { label: '', get: (s) => s.gear, ramp: ['#cfd8d3', '#2d6655'], step: 0 },
+    battery: { label: '%', get: (s) => s.battery, ramp: ['#e4462d', '#68a52f'], step: 0 },
+    heartRate: { label: 'bpm', get: (s) => s.heartRate, ramp: ['#f2b3bd', '#ce3a4e'], step: 0 }
+};
+
+function buildRouteGeoJSON(samples, channelId) {
+    const ch = MAP_CHANNELS[channelId] || MAP_CHANNELS.speed;
+    const step = Math.max(1, Math.floor(samples.length / 600));
+    const pts = [];
+    for (let i = 0; i < samples.length; i += step) {
+        const s = samples[i];
+        if (Number.isFinite(s.latitude) && Number.isFinite(s.longitude)) pts.push(s);
+    }
+    rideMapPoints = pts;
+
+    const values = pts.map((s) => ch.get(s)).filter((v) => Number.isFinite(v));
+    let lo = values.length ? Math.min(...values) : 0;
+    let hi = values.length ? Math.max(...values) : 1;
+    if (ch.symmetric) {
+        const m = Math.max(Math.abs(lo), Math.abs(hi), 1);
+        lo = -m; hi = m;
+    }
+    if (hi - lo < 1e-6) hi = lo + 1;
+
+    const features = [];
+    for (let i = 1; i < pts.length; i++) {
+        const a = pts[i - 1], b = pts[i];
+        const va = ch.get(a), vb = ch.get(b);
+        const v = Number.isFinite(vb) ? vb : va;
+        if (!Number.isFinite(v)) continue;
+        features.push({
+            type: 'Feature',
+            /* i = index of this point in rideMapPoints: lets a map hover
+               map back to the graph cursor. */
+            properties: { v, i },
+            geometry: { type: 'LineString', coordinates: [[a.longitude, a.latitude], [b.longitude, b.latitude]] }
+        });
+    }
+    return { geojson: { type: 'FeatureCollection', features }, lo, hi, ch };
+}
+
+function buildRideMap(ride) {
+    const el = document.getElementById('rideMap');
+    if (!el || typeof maplibregl === 'undefined' || !ride) return;
+    const channelId = document.getElementById('mapChannel').value;
+    const { geojson, lo, hi, ch } = buildRouteGeoJSON(ride.samples, channelId);
+    if (!rideMapPoints.length) return;
+
+    const colorExpr = ['interpolate', ['linear'], ['get', 'v'], lo, ch.ramp[0], hi, ch.ramp[1]];
+
+    /* Legend: min/max of the selected channel. */
+    const legend = document.getElementById('mapLegend');
+    if (legend) {
+        legend.innerHTML =
+            '<span class="legend-swatch" style="background:linear-gradient(90deg,' + ch.ramp[0] + ',' + ch.ramp[1] + ')"></span>' +
+            '<span>' + Math.round(lo) + ' – ' + Math.round(hi) + ' ' + (ch.label || '') + '</span>';
+    }
+
+    if (!rideMap) {
+        rideMap = new maplibregl.Map({
+            container: el,
+            style: {
+                version: 8,
+                sources: {
+                    osm: {
+                        type: 'raster',
+                        tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+                        tileSize: 256,
+                        attribution: '© OpenStreetMap contributors'
+                    }
+                },
+                layers: [{ id: 'osm', type: 'raster', source: 'osm' }]
+            },
+            center: [rideMapPoints[0].longitude, rideMapPoints[0].latitude],
+            zoom: 12,
+            attributionControl: { compact: true }
+        });
+        rideMap.on('load', () => {
+            rideMap.addSource('route', { type: 'geojson', data: geojson });
+            rideMap.addLayer({
+                id: 'route-line',
+                type: 'line',
+                source: 'route',
+                layout: { 'line-cap': 'round', 'line-join': 'round' },
+                paint: { 'line-width': 4, 'line-color': colorExpr }
+            });
+            rideMap.addSource('cursor', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+            rideMap.addLayer({
+                id: 'cursor-dot',
+                type: 'circle',
+                source: 'cursor',
+                paint: {
+                    'circle-radius': 7,
+                    'circle-color': '#5AF822',
+                    'circle-stroke-color': '#1E252D',
+                    'circle-stroke-width': 2
+                }
+            });
+            rideMap.addSource('start', { type: 'geojson', data: { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: [rideMapPoints[0].longitude, rideMapPoints[0].latitude] } }] } });
+            rideMap.addLayer({ id: 'start-dot', type: 'circle', source: 'start', paint: { 'circle-radius': 5, 'circle-color': '#2F7D0E', 'circle-stroke-color': '#fff', 'circle-stroke-width': 2 } });
+            /* Reverse sync: hovering the route moves the cursor on the graphs. */
+            rideMap.on('mousemove', (e) => {
+                const hits = rideMap.queryRenderedFeatures(e.point, { layers: ['route-line'] });
+                if (!hits.length) { setRideCursor(null, 0); return; }
+                if (cursorRaf) return;
+                const mapIdx = hits[0].properties.i;
+                cursorRaf = requestAnimationFrame(() => {
+                    cursorRaf = null;
+                    cursorFromMapPoint(mapIdx);
+                });
+            });
+            rideMap.on('mouseout', () => setRideCursor(null, 0));
+            fitRouteBounds();
+        });
+    } else {
+        rideMap.getSource('route').setData(geojson);
+        rideMap.setPaintProperty('route-line', 'line-color', colorExpr);
+        rideMap.getSource('start').setData({ type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: [rideMapPoints[0].longitude, rideMapPoints[0].latitude] } }] });
+        fitRouteBounds();
+    }
+}
+
+function fitRouteBounds() {
+    if (!rideMap || !rideMapPoints.length) return;
+    const bounds = new maplibregl.LngLatBounds();
+    rideMapPoints.forEach((p) => bounds.extend([p.longitude, p.latitude]));
+    rideMap.fitBounds(bounds, { padding: 30, duration: 0 });
+}
+
+/* Marker follows the hovered time position on the graphs. */
+function updateMapCursor(idx, total) {
+    if (!rideMap || !rideMapPoints.length || typeof maplibregl === 'undefined') return;
+    const src = rideMap.getSource('cursor');
+    if (!src) return;
+    if (idx == null || !total) {
+        src.setData({ type: 'FeatureCollection', features: [] });
+        return;
+    }
+    const p = rideMapPoints[Math.min(rideMapPoints.length - 1, Math.round((idx / Math.max(1, total - 1)) * (rideMapPoints.length - 1)))];
+    src.setData({ type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: [p.longitude, p.latitude] } }] });
+}
+
+/* ---- Ride Insights (Phase 2A): ARE-style graph groups ----------------- */
+/* The 8 graph groups replicate the Avinox Ride Explorer layout 1:1
+   (series, dual axes, colours) using the channels extracted by our
+   parser. Stacked, cursor-synchronized, drag-to-zoom (double-click
+   resets), drag titles to reorder, click legend values to toggle. */
+
+let loadedRides = [];          // [{ metadata, samples, label }]
+let rideCharts = [];           // active Chart instances (stacked)
+let modalChart = null;
+let selectedRideIndex = 0;
+let graphOrder = null;         // persisted group order
+
+/* Fast cursor: a dashed vertical line drawn on a dedicated overlay
+   canvas per graph (no chart re-render) + the map marker. Hovering the
+   map drives the same cursor on the graphs. */
+let cursorRaf = null;
+
+function ensureCursorOverlay(chart) {
+    const areaEl = chart.canvas.parentElement; // .chart-area
+    if (!areaEl) return null;
+    let ov = areaEl.querySelector(".cursor-overlay");
+    if (!ov) {
+        ov = document.createElement("canvas");
+        ov.className = "cursor-overlay";
+        areaEl.appendChild(ov);
+    }
+    const area = chart.chartArea;
+    if (!area) return ov;
+    ov.style.left = area.left + "px";
+    ov.style.top = area.top + "px";
+    ov.style.width = (area.right - area.left) + "px";
+    ov.style.height = (area.bottom - area.top) + "px";
+    const dpr = window.devicePixelRatio || 1;
+    const w = Math.max(1, Math.round((area.right - area.left) * dpr));
+    const h = Math.max(1, Math.round((area.bottom - area.top) * dpr));
+    if (ov.width !== w || ov.height !== h) { ov.width = w; ov.height = h; }
+    return ov;
+}
+
+function drawCursorOverlay(chart, idx) {
+    const ov = ensureCursorOverlay(chart);
+    if (!ov) return;
+    const ctx = ov.getContext("2d");
+    const dpr = window.devicePixelRatio || 1;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, ov.width, ov.height);
+    if (idx == null) return;
+    const area = chart.chartArea;
+    if (!area) return;
+    const labels = chart.data.labels.length;
+    if (labels < 2) return;
+    const x = ((idx / (labels - 1)) * (area.right - area.left)) * dpr;
+    ctx.beginPath();
+    ctx.setLineDash([4 * dpr, 3 * dpr]);
+    ctx.lineWidth = dpr;
+    ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue("--muted").trim();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, ov.height);
+    ctx.stroke();
+}
+
+/* Central cursor: draws the line on every graph and moves the map marker. */
+function setRideCursor(idx, totalLabels) {
+    rideCursorIndex = idx;
+    rideCharts.forEach((c) => {
+        c.canvas.dataset.cursorIndex = idx == null ? "" : String(idx);
+        drawCursorOverlay(c, idx);
+    });
+    updateMapCursor(idx, totalLabels);
+}
+
+/* Reverse direction: a point on the route maps back to the graph index. */
+function cursorFromMapPoint(mapIdx) {
+    const charts = rideCharts.filter((c) => c.data.labels && c.data.labels.length > 1);
+    if (!charts.length || !rideMapPoints.length) return;
+    const total = charts[0].data.labels.length;
+    const graphIdx = Math.round((mapIdx / Math.max(1, rideMapPoints.length - 1)) * (total - 1));
+    setRideCursor(graphIdx, total);
+}
+
+function wireCursorSync(chart) {
+    const canvas = chart.canvas;
+    canvas.addEventListener("mousemove", (e) => {
+        const area = chart.chartArea;
+        if (!area) return;
+        const x = e.offsetX;
+        if (x < area.left || x > area.right) return;
+        const idx = Math.round(((x - area.left) / (area.right - area.left)) * (chart.data.labels.length - 1));
+        if (cursorRaf) return;
+        cursorRaf = requestAnimationFrame(() => {
+            cursorRaf = null;
+            setRideCursor(idx, chart.data.labels.length);
+        });
+    });
+    canvas.addEventListener("mouseleave", () => {
+        setRideCursor(null, 0);
+    });
+}
+
+function rideTheme() {
+    const s = getComputedStyle(document.documentElement);
+    const t = (n) => s.getPropertyValue(n).trim();
+    return {
+        grid: t("--surface-3"), tick: t("--muted"), faint: t("--faint"),
+        surface: t("--surface"), accent: t("--accent"),
+        eco: t("--mode-eco"), auto: t("--mode-auto"), trail: t("--mode-trail"),
+        turbo: t("--mode-turbo"), custom: t("--mode-custom"),
+        accentFill: "rgba(39, 106, 11, 0.14)"
+    };
+}
+
+function downsampleRide(samples, buckets) {
+    const size = Math.max(1, Math.ceil(samples.length / buckets));
+    const out = [];
+    for (let i = 0; i < samples.length; i += size) {
+        const chunk = samples.slice(i, i + size);
+        const mean = (fn) => chunk.reduce((a, s) => a + (fn(s) || 0), 0) / chunk.length;
+        const max = (fn) => Math.max(...chunk.map((s) => fn(s) || 0));
+        out.push({
+            minute: Math.round((chunk[0].timestamp - samples[0].timestamp) / 60),
+            speed: mean((s) => s.speed),
+            cadence: mean((s) => s.cadence),
+            battery: mean((s) => s.battery),
+            assist: chunk.at(-1).assist,
+            riderMean: mean((s) => s.riderPower),
+            motorMean: mean((s) => s.motorPower),
+            motorMax: max((s) => s.motorPower),
+            totalPowerMean: mean((s) => s.totalPower),
+            motorTorqueMean: mean((s) => s.motorTorque),
+            riderTorqueMean: mean((s) => s.riderTorque),
+            totalTorqueMean: mean((s) => s.totalTorque),
+            altitude: mean((s) => s.altitude),
+            gradientMean: mean((s) => s.gradient),
+            gearMean: mean((s) => s.gear),
+            heartMean: mean((s) => s.heartRate),
+            temperature: mean((s) => s.temperature),
+            pressure: mean((s) => s.pressure),
+            distanceKm: chunk.at(-1).distanceKm,
+            /* riderEnergyKj is a CUMULATIVE counter computed by the bike
+               firmware (monotonic, ends at the total ARE displays). The
+               graph shows the counter itself; the ride total is the last
+               value - NOT the sum of all samples. */
+            riderEnergyKj: chunk.at(-1).riderEnergyKj,
+            imuX: mean((s) => s.imuX),
+            imuY: mean((s) => s.imuY),
+            imuZ: mean((s) => s.imuZ)
+        });
+    }
+    return out;
+}
+
+function areaDataset(label, data, color, extra) {
+    /* Translucent fill (15%): full-opacity areas hide the other series
+       stacked in the same graph. */
+    return Object.assign({
+        label, data,
+        borderColor: color,
+        backgroundColor: color + "26",
+        fill: true,
+        borderWidth: 1.5,
+        pointRadius: 0,
+        tension: 0.2,
+        spanGaps: true
+    }, extra || {});
+}
+
+function lineDataset(label, data, color, extra) {
+    return Object.assign({
+        label, data,
+        borderColor: color,
+        backgroundColor: "transparent",
+        borderWidth: 1.5,
+        pointRadius: 0,
+        tension: 0.2,
+        spanGaps: true,
+        fill: false
+    }, extra || {});
+}
+
+/* The 8 ARE graph groups (series, axes and colours replicated 1:1)
+   plus our own energy-by-level bar chart at the end. */
+function rideGraphSpecs(b) {
+    const g = (fn) => b.map((x) => {
+        const v = fn(x);
+        return v == null || !Number.isFinite(v) ? null : Math.round(v * 10) / 10;
+    });
+    return [
+        {
+            id: "elevation", title: "Elevation & Gradient (m / %)", right: true, height: 150,
+            datasets: [
+                areaDataset("Altitude", g((x) => x.altitude), "#665d50"),
+                lineDataset("Gradient", g((x) => x.gradientMean), "#e26435", { yAxisID: "y1" })
+            ]
+        },
+        {
+            id: "speed", title: "Speed & Cadence (km/h / rpm)", right: true, height: 150,
+            datasets: [
+                areaDataset("Speed", g((x) => x.speed), "#276bc1"),
+                lineDataset("Cadence", g((x) => x.cadence), "#16a078", { yAxisID: "y1" })
+            ]
+        },
+        {
+            id: "power", title: "Power (W)", height: 170,
+            datasets: [
+                areaDataset("Rider", g((x) => x.riderMean), "#e06432"),
+                areaDataset("Motor", g((x) => x.motorMean), "#7353b6"),
+                lineDataset("Total", g((x) => x.totalPowerMean), "#192f27")
+            ]
+        },
+        {
+            id: "torque", title: "Torque (Nm)", height: 150,
+            datasets: [
+                areaDataset("Rider", g((x) => x.riderTorqueMean), "#d99a26"),
+                areaDataset("Motor", g((x) => x.motorTorqueMean), "#3d83bd"),
+                lineDataset("Total", g((x) => x.totalTorqueMean), "#313e38")
+            ]
+        },
+        {
+            id: "gear", title: "Gear, Heart & Assist", right: true, height: 150,
+            datasets: [
+                lineDataset("Gear", g((x) => x.gearMean), "#2d6655"),
+                lineDataset("Assist", g((x) => x.assist), "#8f6ab8"),
+                lineDataset("Heart rate", g((x) => x.heartMean), "#ce3a4e", { yAxisID: "y1" })
+            ]
+        },
+        {
+            id: "environment", title: "Battery & Environment (% / °C / kPa)", right: true, height: 150,
+            datasets: [
+                areaDataset("Battery", g((x) => x.battery), "#68a52f"),
+                lineDataset("Temperature", g((x) => x.temperature), "#e57632"),
+                lineDataset("Pressure", g((x) => x.pressure), "#697a96", { yAxisID: "y1" })
+            ]
+        },
+        {
+            id: "distance", title: "Distance & Energy (km / kJ)", right: true, height: 150,
+            datasets: [
+                areaDataset("Distance", g((x) => x.distanceKm), "#316c96"),
+                lineDataset("Rider energy", g((x) => x.riderEnergyKj), "#dc8231", { yAxisID: "y1" })
+            ]
+        },
+        {
+            id: "imu", title: "Raw IMU channels", height: 130,
+            datasets: [
+                lineDataset("IMU X", g((x) => x.imuX), "#d45151"),
+                lineDataset("IMU Y", g((x) => x.imuY), "#3d8a6c"),
+                lineDataset("IMU Z", g((x) => x.imuZ), "#476bb1")
+            ]
+        },
+        {
+            id: "energy", title: "Energy by Assist Level (Wh)", bar: true, height: 180,
+            analysis: true,
+            datasets: []
+        }
+    ];
+}
+
+function rideChartOptions(height, group) {
+    const T = rideTheme();
+    const scales = {
+        x: { grid: { display: false }, ticks: { color: T.tick, maxTicksLimit: 10, callback: (v) => v + "m", font: { size: 9 } } },
+        y: { position: "left", grid: { color: T.grid }, ticks: { color: T.tick, font: { size: 9 } } }
+    };
+    if (group && group.right) {
+        scales.y1 = { position: "right", grid: { display: false }, ticks: { color: T.tick, font: { size: 9 } } };
+    }
+    return {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        normalized: true,
+        interaction: { mode: "index", intersect: false },
+        plugins: {
+            legend: { display: true, position: "top", labels: { color: T.tick, boxWidth: 12, font: { size: 10 } } },
+            tooltip: { callbacks: { title: (items) => "min " + items[0].label } },
+            zoom: {
+                syncGroups: ["avinox-ride"],
+                pan: { enabled: true, mode: "x", modifierKey: "shift" },
+                zoom: { drag: { enabled: true }, mode: "x" },
+                limits: { x: { min: "original", max: "original" } }
+            }
+        },
+        scales
+    };
+}
+
+function buildRideGraphs(ride, analysis) {
+    const container = document.getElementById("rideGraphs");
+    if (!container) return;
+    container.innerHTML = "";
+    rideCharts = [];
+
+    const buckets = downsampleRide(ride.samples, 200);
+    const labels = buckets.map((b) => b.minute);
+    const order = getGraphOrder();
+    const specs = rideGraphSpecs(buckets);
+    specs.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
+    const T = rideTheme();
+
+    for (const spec of specs) {
+        const card = document.createElement("div");
+        card.className = "chart-card ride-graph";
+        card.draggable = true;
+        card.dataset.graphId = spec.id;
+
+        const head = document.createElement("div");
+        head.className = "ride-graph-head";
+        const title = document.createElement("h3");
+        title.className = "chart-title";
+        title.style.textAlign = "left";
+        title.textContent = spec.title;
+        head.appendChild(title);
+        const actions = document.createElement("div");
+        actions.className = "ride-graph-actions";
+        /* Pin: the pinned graph sticks to the top while scrolling. */
+        const pin = document.createElement("button");
+        pin.type = "button";
+        pin.className = "mini-btn pin-btn";
+        pin.setAttribute("aria-label", "Pin " + spec.title);
+        pin.title = "Pin to top";
+        pin.textContent = "📌";
+        pin.addEventListener("click", () => togglePin(spec.id, card));
+        actions.appendChild(pin);
+        if (!spec.bar) {
+            const expand = document.createElement("button");
+            expand.type = "button";
+            expand.className = "mini-btn";
+            expand.setAttribute("aria-label", "Enlarge " + spec.title);
+            expand.title = "Enlarge";
+            expand.textContent = "⤢";
+            expand.addEventListener("click", () => openChartModal(spec.title, spec, labels, buckets));
+            actions.appendChild(expand);
+        }
+        head.appendChild(actions);
+        if (getPinned().includes(spec.id)) card.classList.add("pinned");
+        card.appendChild(head);
+        const areaEl = document.createElement("div");
+        areaEl.className = "chart-area ride-graph-area";
+        areaEl.style.height = spec.height + "px";
+        const canvas = document.createElement("canvas");
+        canvas.id = "graph-" + spec.id;
+        areaEl.appendChild(canvas);
+        card.appendChild(areaEl);
+        container.appendChild(card);
+
+        let cfg;
+        if (spec.bar) {
+            /* Our own energy-by-level chart (needs the analysis). */
+            const levels = analysis ? analysis.levels : [];
+            cfg = {
+                type: "bar",
+                data: {
+                    labels: levels.map((l) => "L" + l.level),
+                    datasets: [{ label: "Motor energy (Wh)", data: levels.map((l) => Math.round(l.motorWh)), backgroundColor: [T.eco, T.auto, T.trail, T.turbo, T.custom], borderRadius: 4 }]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false, animation: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { grid: { display: false }, ticks: { color: T.tick, font: { size: 10, weight: "bold" } } },
+                        y: { grid: { color: T.grid }, ticks: { color: T.tick, font: { size: 9 } } }
+                    }
+                }
+            };
+        } else {
+            cfg = {
+                type: "line",
+                data: { labels, datasets: spec.datasets },
+                options: rideChartOptions(spec.height, spec),
+                plugins: []
+            };
+        }
+        const chart = new Chart(canvas.getContext("2d"), cfg);
+        if (!spec.bar) {
+            chart.canvas.addEventListener("dblclick", () => chart.resetZoom());
+        }
+        chart.update("none");
+        wireCursorSync(chart);
+        applyPinOffsets();
+        rideCharts.push(chart);
+    }
+
+    /* Drag titles to reorder (persisted). */
+    let dragId = null;
+    container.querySelectorAll(".ride-graph").forEach((card) => {
+        card.addEventListener("dragstart", () => { dragId = card.dataset.graphId; });
+        card.addEventListener("dragover", (e) => e.preventDefault());
+        card.addEventListener("drop", (e) => {
+            e.preventDefault();
+            const targetId = card.dataset.graphId;
+            if (!dragId || dragId === targetId) return;
+            const order = getGraphOrder();
+            const from = order.indexOf(dragId), to = order.indexOf(targetId);
+            order.splice(to, 0, order.splice(from, 1)[0]);
+            setGraphOrder(order);
+            rebuildRideGraphs();
+        });
+    });
+}
+
+/* Pinned graphs: stick to the top of the viewport while scrolling.
+   Multiple pins stack: each gets an offset based on how many pinned
+   graphs precede it in the DOM. */
+function getPinned() {
+    try {
+        const saved = JSON.parse(localStorage.getItem("avinox-pinned-graphs") || "[]");
+        return Array.isArray(saved) ? saved : [];
+    } catch (e) { return []; }
+}
+
+function applyPinOffsets() {
+    const headerH = parseInt(getComputedStyle(document.documentElement).getPropertyValue("--header-h")) || 62;
+    let stack = headerH;
+    document.querySelectorAll("#rideGraphs .ride-graph.pinned").forEach((card) => {
+        /* Fixed layer: keep a placeholder so the flow does not collapse. */
+        if (!card.dataset.placeholderH) card.dataset.placeholderH = String(card.offsetHeight);
+        card.style.top = stack + "px";
+        stack += card.offsetHeight + 8;
+    });
+}
+
+/* Near the page bottom the sticky pins would be pushed up by the footer
+   and overlap each other. The stack is clamped: when the remaining page
+   below the viewport is shorter than the stack, the whole stack shifts
+   up so the last pin never crosses the container bottom. */
+function updatePinStack() {
+    const pinned = Array.from(document.querySelectorAll("#rideGraphs .ride-graph.pinned"));
+    if (!pinned.length) return;
+    const headerH = parseInt(getComputedStyle(document.documentElement).getPropertyValue("--header-h")) || 62;
+    const container = document.getElementById("rideGraphs");
+    if (!container) return;
+    const cRect = container.getBoundingClientRect();
+    /* Space available in the viewport for the stack: from the header to
+       the container's bottom edge (the pins must stay inside their
+       container while it is on screen). */
+    const avail = Math.max(0, Math.min(window.innerHeight, cRect.bottom) - headerH);
+    const totalNeeded = pinned.reduce((a, c) => a + c.offsetHeight + 8, -8);
+    let stack = headerH;
+    if (totalNeeded > avail) {
+        /* Compress: shift the stack up so the last pin ends at the
+           container bottom. */
+        stack = headerH - (totalNeeded - avail);
+    }
+    pinned.forEach((card) => {
+        card.style.top = Math.max(0, stack) + "px";
+        stack += card.offsetHeight + 8;
+    });
+}
+
+function togglePin(graphId, card) {
+    const pinned = getPinned();
+    const i = pinned.indexOf(graphId);
+    if (i >= 0) {
+        pinned.splice(i, 1);
+    } else {
+        /* Max 2 pins: more would stack past the viewport height and
+           overlap each other. */
+        if (pinned.length >= 2) {
+            const card2 = document.querySelector('#rideGraphs .ride-graph.pinned');
+            if (card2) {
+                card2.classList.remove('pinned');
+                card2.style.top = '';
+            }
+            pinned.shift();
+        }
+        pinned.push(graphId);
+    }
+    try { localStorage.setItem("avinox-pinned-graphs", JSON.stringify(pinned)); } catch (e) { /* ignore */ }
+    card.classList.toggle("pinned", pinned.includes(graphId));
+    applyPinOffsets();
+}
+
+function getGraphOrder() {
+    if (graphOrder) return graphOrder;
+    try {
+        const saved = JSON.parse(localStorage.getItem("avinox-graph-order") || "null");
+        if (Array.isArray(saved)) { graphOrder = saved; return graphOrder; }
+    } catch (e) { /* ignore */ }
+    graphOrder = ["elevation", "speed", "power", "torque", "gear", "environment", "distance", "imu", "energy"];
+    return graphOrder;
+}
+
+function setGraphOrder(order) {
+    graphOrder = order;
+    try { localStorage.setItem("avinox-graph-order", JSON.stringify(order)); } catch (e) { /* ignore */ }
+}
+
+function rebuildRideGraphs() {
+    if (!loadedRides.length) return;
+    buildRideGraphs(loadedRides[Math.min(selectedRideIndex, loadedRides.length - 1)], lastRideAnalysis);
+}
+
+function renderRideInsights() {
+    const wrap = document.getElementById("rideInsights");
+    if (!wrap) return;
+    const ridesCal = document.getElementById("ridesCalibration");
+    const selector = document.getElementById("rideSelector");
+    const pickerRow = document.getElementById("ridePickerRow");
+    if (!ridesCal || !selector) return;
+
+    const hasRides = loadedRides.length > 0;
+    const hasCal = !!getCalibration();
+    wrap.classList.toggle("hidden", !hasRides);
+    ridesCal.classList.toggle("hidden", !(hasRides || hasCal));
+    const standalone = !hasRides && hasCal;
+    ridesCal.classList.toggle("standalone", standalone);
+    const titleText = document.getElementById("calibrationTitleText");
+    if (titleText) titleText.innerText = standalone ? "Saved calibration" : "Calibration";
+    const standaloneNote = document.getElementById("calibrationStandaloneNote");
+    if (standaloneNote) standaloneNote.classList.toggle("hidden", !standalone);
+    if (pickerRow) pickerRow.classList.toggle("hidden", !hasRides);
+
+
+    selector.innerHTML = "";
+    loadedRides.forEach((r, i) => {
+        const opt = document.createElement("option");
+        opt.value = String(i);
+        const km = r.samples.length ? (r.samples.at(-1).distanceKm || 0).toFixed(1) : "?";
+        const d = r.metadata.start ? new Date(r.metadata.start * 1000).toLocaleDateString() : "";
+        opt.textContent = (d ? d + " - " : "") + km + " km - " + r.metadata.samples + " samples";
+        selector.appendChild(opt);
+    });
+    if (selectedRideIndex >= loadedRides.length) selectedRideIndex = loadedRides.length - 1;
+    if (selectedRideIndex < 0) selectedRideIndex = 0;
+    selector.value = String(selectedRideIndex);
+
+    if (hasRides) buildRideGraphs(loadedRides[selectedRideIndex], lastRideAnalysis);
+    if (hasRides) buildRideMap(loadedRides[selectedRideIndex]);
+}
+
+function openChartModal(title, spec, labels, buckets) {
+    const dlg = document.getElementById("chartModal");
+    const canvas = document.getElementById("chartModalCanvas");
+    const titleEl = document.getElementById("chartModalTitle");
+    if (!dlg || !canvas) return;
+    titleEl.textContent = title;
+    if (modalChart) modalChart.destroy();
+    const T = rideTheme();
+    const datasets = spec.datasets.map((d) => Object.assign({}, d));
+    modalChart = new Chart(canvas.getContext("2d"), {
+        type: "line",
+        data: { labels, datasets },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: "index", intersect: false },
+            plugins: {
+                legend: { position: "top", labels: { color: T.tick, boxWidth: 14 } },
+                tooltip: { callbacks: { title: (items) => "min " + items[0].label } }
+            },
+            scales: {
+                x: { grid: { display: false }, ticks: { color: T.tick, maxTicksLimit: 12, callback: (v) => v + "m" } },
+                y: { grid: { color: T.grid }, ticks: { color: T.tick } }
+            }
+        }
+    });
+    if (typeof dlg.showModal === "function") dlg.showModal();
+}
+
+function initCalibration() {
+    /* Ride selector: switching re-renders the graphs and re-runs the route
+       analysis for that ride. */
+    const selector = document.getElementById('rideSelector');
+    if (selector) {
+        selector.addEventListener('change', () => {
+            selectedRideIndex = parseInt(selector.value, 10) || 0;
+            if (loadedRides[selectedRideIndex]) {
+                buildRideGraphs(loadedRides[selectedRideIndex], lastRideAnalysis);
+                buildRideMap(loadedRides[selectedRideIndex]);
+                analyzeSelectedRide(selectedRideIndex);
+            }
+        });
+    }
+
+    /* Colour-by selector on the map: also focuses the matching graph. */
+    const CHANNEL_GRAPH = {
+        speed: "speed", altitude: "elevation", gradient: "elevation",
+        riderPower: "power", motorPower: "power", cadence: "speed",
+        gear: "gear", battery: "environment", heartRate: "gear"
+    };
+    const mapChannel = document.getElementById('mapChannel');
+    if (mapChannel) {
+        mapChannel.addEventListener('change', () => {
+            if (loadedRides[selectedRideIndex]) buildRideMap(loadedRides[selectedRideIndex]);
+            const graphId = CHANNEL_GRAPH[mapChannel.value];
+            const card = graphId && document.querySelector('#rideGraphs .ride-graph[data-graph-id="' + graphId + '"]');
+            if (!card) return;
+            card.classList.add('graph-focus');
+            /* Scroll so the graph lands just below the sticky map, not
+               underneath it. */
+            const mapCard = document.querySelector('.ride-map-card');
+            const headerH = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--header-h')) || 62;
+            const offset = headerH + (mapCard ? mapCard.offsetHeight : 0) + 16;
+            const y = card.getBoundingClientRect().top + window.scrollY - offset;
+            window.scrollTo({ top: Math.max(0, y), behavior: 'smooth' });
+            setTimeout(() => card.classList.remove('graph-focus'), 3000);
+        });
+    }
+
+    /* Copy the adb command from the file guide. */
+    const copyAdb = document.getElementById('copyAdb');
+    if (copyAdb) {
+        copyAdb.addEventListener('click', () => {
+            copyText('adb pull "/sdcard/Android/data/com.avinox.ride/files/ebike/data/" /sdcard/Download/', copyAdb);
+        });
+    }
+
+    renderCalibrationState();
+}
+
+/* Parse a batch of .proto recordings into the ride library: one ride per
+   file, duplicates skipped (the ride id in the header is stable across
+   re-imports and renames), the calibration factor recomputed over all
+   rides merged - more rides, better factor. */
+async function handleProtoFiles(files) {
+    if (!files.length) return;
+    try {
+        setFileStatus('Reading ' + files.length + ' ride file(s)…', 'info');
+
+        /* Each file becomes a separate ride in the library: charts show
+           one ride at a time (selected in the dropdown). The calibration
+           factor still uses ALL rides merged. Duplicates are skipped. */
+        const added = [];
+        const skipped = [];
+        for (const file of files) {
+            const buf = await file.arrayBuffer();
+            const parsed = AvinoxProtoParser.parse(buf, file.name);
+            const key = parsed.metadata.rideId || parsed.metadata.fileName || file.name;
+            const duplicate = loadedRides.some((r) =>
+                (r.metadata.rideId || r.metadata.fileName || r.label) === key);
+            if (duplicate) { skipped.push(file.name); continue; }
+            const km = parsed.samples.length ? (parsed.samples.at(-1).distanceKm || 0).toFixed(1) : '?';
+            const d = parsed.metadata.start ? new Date(parsed.metadata.start * 1000).toLocaleDateString() : '';
+            loadedRides.push({
+                metadata: parsed.metadata,
+                samples: parsed.samples,
+                label: (d ? d + ' - ' : '') + km + ' km'
+            });
+            added.push(file.name);
+        }
+
+        if (!added.length) {
+            setFileStatus(skipped.length === 1
+                ? 'That ride is already loaded.'
+                : 'These rides are already loaded.', 'info');
+            return;
+        }
+
+        const allSamples = loadedRides.flatMap((r) => r.samples);
+        const earliest = loadedRides.reduce((m, r) => Math.min(m, r.metadata.start), Infinity);
+        const merged = {
+            metadata: {
+                fileName: loadedRides.length + ' ride file(s)',
+                start: earliest,
+                duration: loadedRides.reduce((m, r) => m + r.metadata.duration, 0),
+                samples: allSamples.length
+            },
+            samples: allSamples
+        };
+
+            const analysis = analyzeRideForCalibration(merged);
+            lastRideAnalysis = analysis;
+            /* Totals behind the factor: kept with it so a route analysis can
+               still be personalised after the ride library is cleared. */
+            const calKm = loadedRides.reduce((a, r) => a + (((r.samples.at(-1) || {}).distanceKm) || 0), 0);
+            const calHm = loadedRides.reduce((a, r) => a + (r.metadata.ascent || 0), 0);
+            const cal = {
+                factor: analysis.summary.factor,
+                actualWh: analysis.summary.actualWh,
+                modelWh: analysis.summary.modelWh,
+                whPerKm: analysis.summary.whPerKm,
+                avgLevel: analysis.summary.avgLevel,
+                realKm: Math.round(calKm * 10) / 10,
+                realHm: Math.round(calHm),
+                rideLabel: loadedRides.length + ' ride(s) · ' + analysis.summary.distanceKm + ' km'
+            };
+            setCalibration(cal);
+            /* A route file and recordings are two different things: loading
+               rides drops the loaded GPX/KML and its track. */
+            clearRouteFile();
+            setFileStatus('Loaded ' + loadedRides.length + ' ride(s), ' + allSamples.length + ' samples.'
+                + (skipped.length ? ' (' + skipped.length + ' already loaded, skipped)' : ''), 'ok');
+            renderCalibrationReport(analysis);
+            selectedRideIndex = loadedRides.length - 1;
+            renderRideInsights();
+            /* The ride becomes the analyzed route: distance, elevation and
+               grade breakdown come from this recording. */
+            analyzeSelectedRide(selectedRideIndex);
+            /* Recalculate the Tuner and explain what changed: the estimates
+               now come from the real ride consumption. */
+            const before = lastCalcRes;
+            await updateSetup();
+            showRideSummary(before, lastCalcRes, analysis);
+        } catch (err) {
+            setFileStatus(err.message, 'error');
+        }
+}
+
+let lastRideAnalysis = null;
 
 function analyzeRideForCalibration(parsed) {
     /* Only levels 1-15 are comparable with the model: special values
@@ -72,6 +966,10 @@ function analyzeRideForCalibration(parsed) {
     const byLevel = {};
     let actualWh = 0, modelWh = 0, distanceKm = 0, batteryStart = null, batteryEnd = null;
     const bikeMaxPower = 1300; // physical ceiling used by the model comparison
+    /* Distance must ADD UP over merged rides: each file restarts its
+       distance counter at zero, so the max would only give the longest
+       ride while energy is summed over all of them. */
+    let prevDist = null, distOffset = 0;
 
     for (let i = 0; i < samples.length; i++) {
         const s = samples[i];
@@ -81,7 +979,11 @@ function analyzeRideForCalibration(parsed) {
             if (batteryStart === null) batteryStart = s.battery;
             batteryEnd = s.battery;
         }
-        distanceKm = Math.max(distanceKm, s.distanceKm || 0);
+        const rideDist = s.distanceKm || 0;
+        if (prevDist !== null && rideDist < prevDist - 0.5) distOffset += prevDist; // new ride, counter restarted
+        if (prevDist === null) distOffset = 0;
+        prevDist = rideDist;
+        distanceKm = distOffset + rideDist;
 
         const lvl = s.assist;
         if (!byLevel[lvl]) byLevel[lvl] = { level: lvl, seconds: 0, riderWh: 0, motorWh: 0, samples: 0, activeSeconds: 0, activeRiderWh: 0, activeMotorWh: 0 };
@@ -95,7 +997,7 @@ function analyzeRideForCalibration(parsed) {
         actualWh += motorW * dt / 3600;
 
         /* Active averages: only samples where the rider is actually
-           pedaling — otherwise coasting/stops dilute the averages. */
+           pedaling - otherwise coasting/stops dilute the averages. */
         if (riderW > 20) {
             b.activeSeconds += dt;
             b.activeRiderWh += riderW * dt / 3600;
@@ -118,18 +1020,34 @@ function analyzeRideForCalibration(parsed) {
     const avgCadence = active.length ? Math.round(active.reduce((a, s) => a + (s.cadence || 0), 0) / active.length) : null;
 
     const factor = actualWh > 1 ? actualWh / modelWh : 1;
+    const fmtDuration = (sec) => {
+        const h = Math.floor(sec / 3600), m = Math.round((sec % 3600) / 60);
+        return h > 0 ? h + 'h ' + m + 'm' : m + 'm';
+    };
+
+    /* Real consumption model: motor Wh per km and the assist level that
+       produced it (energy-weighted). Sent to the API so range/runtime are
+       estimated from real data instead of "cap x hours". */
+    const whPerKm = distanceKm > 0.5 ? actualWh / distanceKm : null;
+    const totalLevelWh = levels.reduce((a, l) => a + l.motorWh, 0);
+    const avgLevel = totalLevelWh > 0
+        ? levels.reduce((a, l) => a + l.level * l.motorWh, 0) / totalLevelWh
+        : null;
+
     return {
         summary: {
             fileName: parsed.metadata.fileName,
-            date: parsed.metadata.start ? new Date(parsed.metadata.start * 1000).toLocaleString() : '—',
-            durationH: (parsed.metadata.duration / 3600).toFixed(2),
+            date: parsed.metadata.start ? new Date(parsed.metadata.start * 1000).toLocaleString() : '-',
+            durationH: fmtDuration(parsed.metadata.duration),
             distanceKm: distanceKm.toFixed(1),
             batteryStart, batteryEnd,
             actualWh: Math.round(actualWh),
             modelWh: Math.round(modelWh),
             factor: Math.round(factor * 100) / 100,
             avgRiderPower,
-            avgCadence
+            avgCadence,
+            whPerKm: whPerKm ? Math.round(whPerKm * 10) / 10 : null,
+            avgLevel: avgLevel ? Math.round(avgLevel * 10) / 10 : null
         },
         levels
     };
@@ -141,173 +1059,6 @@ function ratioOfLevelClient(level) {
     const table = { 1: 0.35, 2: 0.70, 3: 1.00, 4: 1.50, 5: 1.85, 6: 2.15, 7: 2.45, 8: 3.00, 9: 3.60, 10: 4.35, 11: 5.15, 12: 6.05, 13: 7.00, 14: 7.65, 15: 8.00 };
     return table[level] || 0;
 }
-
-/* ---- Ride Insights (Phase 2A): sensor timelines + energy by level ----- */
-
-let ridePowerChart = null, rideSpeedChart = null, rideBatteryChart = null, rideEnergyChart = null;
-
-function renderRideInsights(parsed, analysis) {
-    const wrap = document.getElementById('rideInsights');
-    if (!wrap) return;
-    wrap.classList.remove('hidden');
-
-    const samples = parsed.samples.filter((s) => s && s.timestamp);
-    const t0 = samples[0].timestamp;
-    const labels = samples.map((s) => Math.round((s.timestamp - t0) / 60)); // minutes
-    const theme = chartTheme();
-
-    const lineOpts = (yTitle) => ({
-        responsive: true,
-        maintainAspectRatio: false,
-        interaction: { mode: 'index', intersect: false },
-        plugins: {
-            legend: { display: true, position: 'top', labels: { color: theme.tick, boxWidth: 12 } },
-            tooltip: { callbacks: { title: (items) => 'min ' + items[0].label } }
-        },
-        scales: {
-            x: { grid: { display: false }, ticks: { color: theme.tick, maxTicksLimit: 10, callback: (v) => v + 'm' } },
-            y: { grid: { color: theme.grid }, ticks: { color: theme.tick, font: { size: 10 } } }
-        }
-    });
-
-    const mk = (id, prev, cfg) => {
-        const ctx = document.getElementById(cfg.id).getContext('2d');
-        if (prev) prev.destroy();
-        return new Chart(ctx, cfg.chart);
-    };
-
-    ridePowerChart = mk('ridePowerChart', ridePowerChart, {
-        id: 'ridePowerChart',
-        chart: {
-            type: 'line',
-            data: {
-                labels,
-                datasets: [
-                    { label: 'Motor', data: samples.map((s) => s.motorPower), borderColor: theme.modeColors[3], backgroundColor: 'transparent', borderWidth: 1.5, pointRadius: 0, tension: 0.15 },
-                    { label: 'Rider', data: samples.map((s) => s.riderPower), borderColor: theme.modeColors[0], backgroundColor: 'transparent', borderWidth: 1.5, pointRadius: 0, tension: 0.15 }
-                ]
-            },
-            options: lineOpts()
-        }
-    });
-
-    rideSpeedChart = mk('rideSpeedChart', rideSpeedChart, {
-        id: 'rideSpeedChart',
-        chart: {
-            type: 'line',
-            data: {
-                labels,
-                datasets: [
-                    { label: 'Speed km/h', data: samples.map((s) => s.speed), borderColor: theme.modeColors[1], backgroundColor: 'transparent', borderWidth: 1.5, pointRadius: 0, tension: 0.15 },
-                    { label: 'Cadence RPM', data: samples.map((s) => s.cadence), borderColor: theme.modeColors[1], backgroundColor: 'transparent', borderWidth: 1, borderDash: [4, 3], pointRadius: 0, tension: 0.15 }
-                ]
-            },
-            options: lineOpts()
-        }
-    });
-
-    rideBatteryChart = mk('rideBatteryChart', rideBatteryChart, {
-        id: 'rideBatteryChart',
-        chart: {
-            type: 'line',
-            data: {
-                labels,
-                datasets: [
-                    { label: 'Battery %', data: samples.map((s) => s.battery), borderColor: theme.accent, backgroundColor: theme.accentFill, borderWidth: 1.5, pointRadius: 0, tension: 0.15, yAxisID: 'y' },
-                    { label: 'Assist level', data: samples.map((s) => s.assist), borderColor: theme.modeColors[2], backgroundColor: 'transparent', borderWidth: 1, stepped: true, pointRadius: 0, yAxisID: 'y1' }
-                ]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                interaction: { mode: 'index', intersect: false },
-                plugins: { legend: { position: 'top', labels: { color: theme.tick, boxWidth: 12 } } },
-                scales: {
-                    x: { grid: { display: false }, ticks: { color: theme.tick, maxTicksLimit: 10, callback: (v) => v + 'm' } },
-                    y: { min: 0, max: 100, grid: { color: theme.grid }, ticks: { color: theme.tick, font: { size: 10 } } }
-                }
-            }
-        }
-    });
-
-    /* Energy by assist level: where the battery actually went. */
-    const levels = analysis.levels;
-    rideEnergyChart = mk('rideEnergyChart', rideEnergyChart, {
-        id: 'rideEnergyChart',
-        chart: {
-            type: 'bar',
-            data: {
-                labels: levels.map((l) => 'L' + l.level),
-                datasets: [{ label: 'Motor energy (Wh)', data: levels.map((l) => Math.round(l.motorWh)), backgroundColor: theme.modeColors, borderRadius: 4 }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: { legend: { display: false } },
-                scales: {
-                    x: { grid: { display: false }, ticks: { color: theme.tick, font: { size: 10, weight: 'bold' } } },
-                    y: { grid: { color: theme.grid }, ticks: { color: theme.tick, font: { size: 10 } } }
-                }
-            }
-        }
-    });
-}
-
-function initCalibration() {
-    const btn = document.getElementById('protoLoadBtn');
-    const input = document.getElementById('protoInput');
-    const status = document.getElementById('calibrationStatus');
-    if (!btn || !input) return;
-
-    btn.addEventListener('click', () => input.click());
-    input.addEventListener('change', async () => {
-        const files = Array.from(input.files || []);
-        if (!files.length) return;
-        try {
-            status.className = 'file-status status-info';
-            status.innerText = 'Reading ' + files.length + ' file(s)…';
-
-            const rides = [];
-            for (const file of files) {
-                const buf = await file.arrayBuffer();
-                rides.push(AvinoxProtoParser.parse(buf, file.name));
-            }
-
-            /* Merge all rides into one analysis: more rides, better factor. */
-            const allSamples = rides.flatMap((r) => r.samples);
-            const earliest = rides.reduce((m, r) => Math.min(m, r.metadata.start), Infinity);
-            const merged = {
-                metadata: {
-                    fileName: files.length + ' ride file(s)',
-                    start: earliest,
-                    duration: rides.reduce((m, r) => m + r.metadata.duration, 0),
-                    samples: allSamples.length
-                },
-                samples: allSamples
-            };
-
-            const analysis = analyzeRideForCalibration(merged);
-            const cal = {
-                factor: analysis.summary.factor,
-                actualWh: analysis.summary.actualWh,
-                modelWh: analysis.summary.modelWh,
-                rideLabel: files.length + ' ride(s) · ' + analysis.summary.distanceKm + ' km'
-            };
-            setCalibration(cal);
-            status.className = 'file-status status-ok';
-            status.innerText = 'Parsed ' + rides.length + ' ride(s), ' + allSamples.length + ' samples.';
-            renderCalibrationReport(analysis);
-            renderRideInsights(merged, analysis);
-        } catch (err) {
-            status.className = 'file-status status-error';
-            status.innerText = err.message;
-        }
-        input.value = '';
-    });
-    renderCalibrationState();
-}
-
-let lastRideAnalysis = null;
 
 function renderCalibrationReport(analysis) {
     const report = document.getElementById('calibrationReport');
@@ -326,21 +1077,20 @@ function renderCalibrationReport(analysis) {
     report.innerHTML =
         '<div class="card"><div class="card-body kv-compact">' +
         kvRow('Ride date:', s.date) +
-        kvRow('Duration / distance:', s.durationH + ' h / ' + s.distanceKm + ' km') +
+        kvRow('Duration / distance:', s.durationH + ' / ' + s.distanceKm + ' km') +
         kvRow('Battery start / finish:', (s.batteryStart ?? '—') + ' / ' + (s.batteryEnd ?? '—') + ' %') +
         kvRow('Your real averages:', (s.avgCadence ?? '—') + ' RPM · ' + (s.avgRiderPower ?? '—') + ' W (while pedaling)') +
         kvRow('Real motor energy:', s.actualWh + ' Wh') +
         kvRow('Model prediction:', s.modelWh + ' Wh') +
-        kvRow('Personal factor:', '×' + s.factor.toFixed(2)) +
         '</div></div>' +
         '<div class="kb-table-wrap"><table class="kb-table"><thead><tr>' +
         '<th>Level</th><th>Time</th><th>Rider W (riding)</th><th>Motor W (riding)</th><th>Rider W (total)</th><th>Energy</th>' +
         '</tr></thead><tbody>' + rows + '</tbody></table></div>' +
-        '<button type="button" id="useRideAverages" class="btn btn-ghost btn-sm"' +
+        '<button type="button" id="useRideAverages" class="btn btn-primary btn-block"' +
         ((s.avgCadence && s.avgRiderPower) ? '' : ' disabled') + '>Use ride averages' +
-        ((s.avgCadence && s.avgRiderPower) ? ' (' + s.avgCadence + ' RPM · ' + s.avgRiderPower + ' W)' : '') +
+        ((s.avgCadence && s.avgRiderPower) ? ' — ' + s.avgCadence + ' RPM · ' + s.avgRiderPower + ' W' : '') +
         '</button>' +
-        '<p class="hint">Estimates are now scaled by 1/' + s.factor.toFixed(2) + ' = ×' + (1 / s.factor).toFixed(2) + '. Remove the calibration to return to the generic model.</p>';
+        '<p class="hint">Estimates now come from the real consumption measured on your rides (' + (s.whPerKm ?? '?') + ' Wh/km).</p>';
     const useBtn = document.getElementById('useRideAverages');
     if (useBtn && s.avgCadence && s.avgRiderPower) {
         useBtn.addEventListener('click', () => {
@@ -569,12 +1319,19 @@ async function updateSetup() {
         turboWkg: document.getElementById('turboWkg').value
     };
 
+    /* Real-ride consumption: when rides are calibrated, ask the API to
+       derive range/runtime from the measured Wh/km instead of the cap. */
+    const calibration = getCalibration();
+    if (calibration && calibration.whPerKm > 0 && calibration.avgLevel > 0) {
+        data.realWhPerKm = calibration.whPerKm;
+        data.realLevel = calibration.avgLevel;
+    }
+
     try {
         const response = await axios.post('/api/calculate', data);
         const res = response.data;
         saveForm();
         const cal = getCalibration();
-        const calFactor = cal ? 1 / cal.factor : 1;
         document.getElementById('sysWeight').innerText = 'Total Weight: ' + res.totalWeight + ' kg';
         
         const modes = [
@@ -602,8 +1359,8 @@ async function updateSetup() {
                 ? ` <span class="kv-hint">(computed ${m.data.idealPower} W)</span>` : '';
             const drawHint = (m.data.typicalPower < m.data.maxPower)
                 ? ` <span class="kv-hint">(expected draw ~${m.data.typicalPower} W at your input)</span>` : '';
-            const calHint = calFactor !== 1
-                ? ` <span class="kv-hint">· estimates ×${calFactor.toFixed(2)} (calibrated)</span>` : '';
+            const calHint = res.basedOnRealRides
+                ? ` <span class="kv-hint">· from your rides (${cal ? cal.whPerKm : '?'} Wh/km)</span>` : '';
             const torqueHint = (m.data.idealTorque !== m.data.maxTorque)
                 ? ` <span class="kv-hint">(computed ${m.data.idealTorque} Nm)</span>` : '';
 
@@ -630,15 +1387,18 @@ async function updateSetup() {
             : '';
 
         initCharts(
-            [res.eco.range, res.auto.range, res.trail.range, res.turbo.range].map((v) => v * calFactor),
-            [res.eco.runtime, res.auto.runtime, res.trail.runtime, res.turbo.runtime].map((v) => v * calFactor)
+            [res.eco.range, res.auto.range, res.trail.range, res.turbo.range],
+            [res.eco.runtime, res.auto.runtime, res.trail.runtime, res.turbo.runtime]
         );
         initStockChart(
             res.stock || [],
-            [res.eco.runtime, res.auto.runtime, res.trail.runtime, res.turbo.runtime].map((v) => v * calFactor)
+            [res.eco.runtime, res.auto.runtime, res.trail.runtime, res.turbo.runtime]
         );
+        lastCalcRes = res;
+        return res;
     } catch (err) {
         console.error(err);
+        return null;
     }
 }
 
@@ -648,33 +1408,16 @@ async function updateSetup() {
  * the device. Only distance and elevation gain are sent to the API.
  * ================================================================== */
 
-let routeSource = 'manual';
 let parsedRoute = null;       // { source, geometries, warnings }
 let selectedGeometries = [];  // indices into parsedRoute.geometries
 let routeStats = null;
 let routeGrades = null;       // grade distribution + climbs
 let elevationChartInstance = null;
-
-function setRouteSource(mode) {
-    routeSource = mode;
-    const fileBlock = document.getElementById('fileSource');
-    const manualBtn = document.getElementById('srcManualBtn');
-    const fileBtn = document.getElementById('srcFileBtn');
-
-    if (mode === 'manual') {
-        fileBlock.classList.add('hidden');
-        manualBtn.classList.add('is-active');
-        fileBtn.classList.remove('is-active');
-        manualBtn.setAttribute('aria-pressed', 'true');
-        fileBtn.setAttribute('aria-pressed', 'false');
-    } else {
-        fileBlock.classList.remove('hidden');
-        manualBtn.classList.remove('is-active');
-        fileBtn.classList.add('is-active');
-        manualBtn.setAttribute('aria-pressed', 'false');
-        fileBtn.setAttribute('aria-pressed', 'true');
-    }
-}
+/* What the analysis panel currently describes: the route file name, a ride
+   label, or null for a hand-typed route. Shown next to the verdict so the
+   panel is never ambiguous once a file and some rides are both loaded. */
+let analysisSourceLabel = null;
+let routeFileName = null;
 
 function setFileStatus(msg, kind) {
     const el = document.getElementById('fileStatus');
@@ -703,6 +1446,11 @@ async function handleRouteFile(file) {
         setFileStatus('File is larger than 10 MB.', 'error');
         return;
     }
+    routeFileName = file.name;
+    /* The "Rides analyzed" dialog described the previous input: the route
+       file now owns the analysis, so it must not sit on screen. */
+    const summaryDlg = document.getElementById('rideSummaryDialog');
+    if (summaryDlg && summaryDlg.open) summaryDlg.close();
     setFileStatus('Reading ' + file.name + '…', 'info');
 
     let text;
@@ -731,8 +1479,15 @@ async function handleRouteFile(file) {
         return;
     }
 
+    /* A planned route and recorded rides are two different things: the tab
+       holds one at a time, so the route file drops the ride library (the
+       calibration - a measurement stored on the device - survives it). */
+    const hadRides = loadedRides.length;
+    if (hadRides) clearRides();
+
     setFileStatus(parsedRoute.source.toUpperCase() + ' parsed — ' +
-        parsedRoute.geometries.length + ' geometry(ies) found.', 'ok');
+        parsedRoute.geometries.length + ' geometry(ies) found.'
+        + (hadRides ? ' The loaded ride(s) were cleared.' : ''), 'ok');
 
     // Select everything by default. GPX track segments and KML
     // MultiGeometry parts are normally one ride split by pauses or by
@@ -825,10 +1580,16 @@ function applyRouteSelection() {
     const route = AvinoxRoute.buildRoute(chosen);
     routeStats = AvinoxRoute.computeStats(route.points);
     routeGrades = AvinoxRoute.computeGradeStats(route.points);
+    analysisSourceLabel = routeFileName;
 
     renderFileSummary();
     renderElevationChart(chosen);
     renderRouteAnalysis();
+
+    /* The analysis follows the route: loading a file (or changing the
+       segments) re-runs it, so the energy card can never describe a
+       different track than the grades and the profile next to it. */
+    document.getElementById('missionForm').dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
 }
 
 function copyText(text, btn) {
@@ -1087,14 +1848,41 @@ function renderElevationChart(chosen) {
         ' point(s), gain threshold ' + AvinoxRoute.constants.ELEVATION_THRESHOLD_M + ' m.';
 }
 
-(function initRouteFileInput() {
-    const drop = document.getElementById('dropZone');
+/* One drop zone for both kinds of input: a planned route (.gpx/.kml) and
+   recorded rides (.proto). The extension decides the pipeline; dropped
+   files of both kinds in the same batch are all handled. */
+(function initRouteInput() {
+    const drop = document.getElementById('routeDropZone');
     const input = document.getElementById('routeFileInput');
     if (!drop || !input) return;
 
+    const isProto = (f) => /\.proto$/i.test(f.name);
+
+    const handleFiles = async (list) => {
+        const files = Array.from(list || []);
+        if (!files.length) return;
+        const protos = files.filter(isProto);
+        const route = files.find((f) => !isProto(f));
+        if (!protos.length && !route) {
+            setFileStatus('Unsupported file: use .gpx, .kml or .proto.', 'error');
+            return;
+        }
+        /* A route file and recordings are two different things: the tab
+           holds one at a time, so a mixed drop keeps only the route file
+           (recordings are reloaded on their own to switch back). */
+        if (protos.length && route) {
+            await handleRouteFile(route);
+            setFileStatus('Loaded ' + route.name + '. A route file and recordings cannot be loaded together: reload the .proto file(s) on their own to analyze a ride instead.', 'info');
+            return;
+        }
+        if (route) await handleRouteFile(route);
+        else await handleProtoFiles(protos);
+    };
+
     drop.addEventListener('click', () => input.click());
     input.addEventListener('change', () => {
-        if (input.files && input.files[0]) handleRouteFile(input.files[0]);
+        handleFiles(input.files);
+        input.value = '';
     });
 
     ['dragenter', 'dragover'].forEach((ev) => {
@@ -1110,18 +1898,12 @@ function renderElevationChart(chosen) {
         });
     });
     drop.addEventListener('drop', (e) => {
-        const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
-        if (f) handleRouteFile(f);
+        if (e.dataTransfer && e.dataTransfer.files) handleFiles(e.dataTransfer.files);
     });
 })();
 
 document.getElementById('missionForm').addEventListener('submit', async (e) => {
     e.preventDefault();
-
-    if (routeSource === 'file' && (!routeStats || !routeStats.ok)) {
-        alert('Load a GPX or KML file first, or switch back to Manual.');
-        return;
-    }
 
     const selectedBattery = document.getElementById('batteryWh').value;
     const data = {
@@ -1140,10 +1922,44 @@ document.getElementById('missionForm').addEventListener('submit', async (e) => {
         elevationQuality: (routeStats && routeStats.ok) ? routeStats.quality : null
     };
 
+    /* Personal consumption from the calibration: the energy estimate is
+       scaled by how the model compares with the real rides it was measured
+       on. When the library is still loaded the totals are recomputed live;
+       otherwise the totals stored with the calibration are used, so a
+       planned route stays personalised (and consistent with the Tuner,
+       which applies the same factor). */
+    const cal2 = getCalibration();
+    if (cal2 && cal2.whPerKm > 0) {
+        const realKm = loadedRides.length
+            ? loadedRides.reduce((a, r) => a + (((r.samples.at(-1) || {}).distanceKm) || 0), 0)
+            : (cal2.realKm || 0);
+        const realHm = loadedRides.length
+            ? loadedRides.reduce((a, r) => a + (r.metadata.ascent || 0), 0)
+            : (cal2.realHm || 0);
+        if (realKm > 1) {
+            data.realWhPerKm = cal2.whPerKm;
+            data.realKm = Math.round(realKm * 10) / 10;
+            data.realHm = Math.round(realHm);
+        }
+    }
+
     try {
         const response = await axios.post('/api/calculate-mission', data);
         const res = response.data;
-        
+
+        /* Results exist now: show them and hide the empty state. */
+        document.getElementById('missionResults').classList.remove('hidden');
+        document.getElementById('missionEmpty').classList.add('hidden');
+
+        /* Say which input these numbers describe: a loaded file, a
+           recording, or the values typed by hand. */
+        const srcEl = document.getElementById('analysisSource');
+        if (srcEl) {
+            srcEl.innerText = analysisSourceLabel
+                ? 'Analysis source: ' + analysisSourceLabel
+                : 'Analysis source: manual entry';
+        }
+
         const badge = document.getElementById('energyVerdict');
         if (res.feasible) {
             badge.innerText = 'FEASIBLE';
@@ -1153,9 +1969,21 @@ document.getElementById('missionForm').addEventListener('submit', async (e) => {
             badge.className = 'badge badge-warn';
         }
 
-        const en = res.energy;
-        document.getElementById('energyBreakdown').innerHTML =
-            kvRow('Estimated use:', `${en.estimated} Wh`, ` <span class="kv-hint">(${en.low}–${en.high} Wh)</span>`) +
+                const en = res.energy;
+                /* Say where the personal factor comes from: with the rides
+                   loaded it is "your rides", without them it is the stored
+                   calibration - and the user is told how to drop it. */
+                let scalingNote = '';
+                if (res.basedOnRealRides) {
+                    const calInfo = getCalibration();
+                    const on = calInfo && calInfo.rideLabel ? ' — measured on ' + calInfo.rideLabel : '';
+                    scalingNote = callout('info', loadedRides.length
+                        ? 'Energy estimate scaled by your rides (×' + res.personalFactor.toFixed(2) + on + ').'
+                        : 'Energy estimate scaled by the calibration stored on this device (×' + res.personalFactor.toFixed(2) + on + '); the ride recordings are not loaded. Remove the calibration below to go back to the generic model.');
+                }
+                document.getElementById('energyBreakdown').innerHTML =
+                    scalingNote +
+                    kvRow('Estimated use:', `${en.estimated} Wh`, ` <span class="kv-hint">(${en.low}–${en.high} Wh)</span>`) +
             kvRow('Baseline flat + climb:', `${en.base} Wh`, ` <span class="kv-hint">(${en.flat} + ${en.climb})</span>`) +
             kvRow('Corrections:', `surface ×${res.surface.factor.toFixed(2)}, steepness ×${res.steepnessFactor.toFixed(2)}`) +
             kvRow('Usable battery:', `${res.usableWh} Wh`, ` <span class="kv-hint">(${selectedBattery} − ${res.reserve.percent}% reserve)</span>`) +
@@ -1184,29 +2012,6 @@ document.getElementById('missionForm').addEventListener('submit', async (e) => {
             }
         });
 
-        const mGrid = document.getElementById('missionGrid');
-        mGrid.innerHTML = '';
-
-        const mModes = [
-            { name: 'MISSION ECO', key: 'eco', data: res.eco },
-            { name: 'MISSION AUTO', key: 'auto', data: res.auto },
-            { name: 'MISSION TRAIL', key: 'trail', data: res.trail },
-            { name: 'MISSION TURBO', key: 'turbo', data: res.turbo }
-        ];
-
-        mModes.forEach(m => {
-            mGrid.innerHTML += modeCard({
-                mode: m.key,
-                title: m.name,
-                badges: [`<span class="badge badge-mode-${m.key}">${m.data.wkg} W/kg</span>`],
-                rows: [
-                    kvRow('Assist Bound:', `${m.data.level}${m.data.levelPct ? ` <span class="kv-hint">· ${m.data.levelPct} of rider input</span>` : ''}`),
-                    kvRow('Power Limit:', m.data.watts),
-                    kvRow('Max Torque:', m.data.torque)
-                ]
-            });
-        });
-
         // Phase 3: propose custom modes tailored to this route.
         try {
             const modesResponse = await axios.post('/api/route-modes', data);
@@ -1223,10 +2028,314 @@ window.addEventListener('DOMContentLoaded', () => {
     restoreForm();
     updateSetup();
     initCalibration();
+    initKbDialog();
+    initResetDefaults();
+    initChartModal();
+    initRideSummaryDialog();
+    initAppReset();
+    initInstallButton();
     if ('serviceWorker' in navigator) {
         navigator.serviceWorker.register('/sw.js').catch(() => { /* offline support unavailable */ });
     }
 });
+
+/* Analyse one recorded ride as the route: build the same track data a
+   GPX/KML import would produce (stats, grade distribution, elevation
+   profile) from that ride's GPS, then run the analysis. Merging several
+   rides into one track would concatenate unrelated recordings (huge fake
+   gaps) and break the grade analysis, so it is one at a time. */
+function analyzeSelectedRide(index) {
+    if (!loadedRides.length) return;
+    const i = (typeof index === 'number' && loadedRides[index]) ? index : Math.min(selectedRideIndex, loadedRides.length - 1);
+    const ride = loadedRides[i];
+    if (!ride) return;
+    selectedRideIndex = i;
+
+    /* GPS track of the ride, in the format route-file.js uses. */
+    const points = [];
+    ride.samples.forEach((s) => {
+        if (Number.isFinite(s.latitude) && Number.isFinite(s.longitude)) {
+            points.push({
+                lat: s.latitude,
+                lon: s.longitude,
+                ele: Number.isFinite(s.altitude) ? s.altitude : null
+            });
+        }
+    });
+
+    if (points.length > 1 && typeof AvinoxRoute !== 'undefined') {
+        routeStats = AvinoxRoute.computeStats(points);
+        routeGrades = AvinoxRoute.computeGradeStats(points);
+        analysisSourceLabel = ride.label || 'recorded ride';
+        /* Fill distance/elevation and render the profile + grade analysis
+           exactly as a file import would. */
+        renderFileSummary();
+        renderElevationChart([{ name: ride.label || 'ride', points: points }]);
+        renderRouteAnalysis();
+    } else {
+        const realKm = (ride.samples.at(-1) || {}).distanceKm || 0;
+        const realHm = ride.metadata.ascent || 0;
+        if (realKm > 0.1) document.getElementById('targetKm').value = (Math.round(realKm * 10) / 10).toFixed(1);
+        if (realHm > 0) document.getElementById('targetH_m').value = Math.round(realHm);
+        analysisSourceLabel = ride.label || 'recorded ride';
+    }
+
+    document.getElementById('missionForm').dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+}
+
+/* Popup shown right after rides are parsed: explains what changed, shows
+   the before/after of the estimates and offers the riding-style action. */
+function showRideSummary(before, after, analysis) {
+    const dlg = document.getElementById('rideSummaryDialog');
+    const body = document.getElementById('rideSummaryBody');
+    if (!dlg || !body || !after) return;
+    const s = analysis.summary;
+    const modes = [['eco', 'ECO'], ['auto', 'AUTO'], ['trail', 'TRAIL'], ['turbo', 'TURBO']];
+    const rows = before ? modes.map(([k, label]) =>
+        '<tr><td>' + label + '</td><td>' + before[k].range + ' km</td>' +
+        '<td><strong>' + after[k].range + ' km</strong></td></tr>').join('') : '';
+
+    body.innerHTML =
+        '<p class="ride-summary-lead">Your rides are now the basis for the range and runtime estimates.</p>' +
+        '<div class="kv"><div class="kv-row"><span class="kv-label">Measured consumption</span>' +
+        '<span class="kv-value">' + (s.whPerKm ?? '?') + ' Wh/km</span></div>' +
+        '<div class="kv-row"><span class="kv-label">Distance analyzed</span>' +
+        '<span class="kv-value">' + s.distanceKm + ' km · ' + loadedRides.length + ' ride(s)</span></div>' +
+        '<div class="kv-row"><span class="kv-label">Your riding style</span>' +
+        '<span class="kv-value">' + (s.avgCadence ?? '?') + ' RPM · ' + (s.avgRiderPower ?? '?') + ' W</span></div></div>' +
+        (rows ? '<table class="kb-table ride-summary-table"><thead><tr><th>Mode</th><th>Standard</th><th>Your rides</th></tr></thead><tbody>' + rows + '</tbody></table>' : '') +
+        '<p class="hint">"Use my riding style" also copies your real cadence and power into the Tuner, so the suggested levels match how you actually ride.</p>';
+
+    if (typeof dlg.showModal === 'function') dlg.showModal();
+}
+
+function initRideSummaryDialog() {
+    const dlg = document.getElementById('rideSummaryDialog');
+    if (!dlg) return;
+    const close = () => dlg.close();
+    document.getElementById('rideSummaryClose').addEventListener('click', close);
+    document.getElementById('rideSummaryView').addEventListener('click', () => {
+        close();
+        document.getElementById('rideInsights').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+    document.getElementById('rideSummaryApply').addEventListener('click', () => {
+        const s = lastRideAnalysis && lastRideAnalysis.summary;
+        if (s && s.avgCadence && s.avgRiderPower) {
+            document.getElementById('cadence').value = s.avgCadence;
+            document.getElementById('riderPower').value = s.avgRiderPower;
+            saveForm();
+            updateSetup();
+        }
+        close();
+        switchTab('calc');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+}
+
+/* PWA install button: mobile only. Chrome/Android fires
+   beforeinstallprompt and we trigger it; iOS Safari cannot be prompted,
+   so the button shows the Add-to-Home-Screen instructions instead. */
+function initInstallButton() {
+    const btn = document.getElementById('installApp');
+    if (!btn) return;
+    const ua = navigator.userAgent;
+    const isMobile = (navigator.userAgentData && navigator.userAgentData.mobile)
+        || /Android|iPhone|iPad|iPod|Mobile/i.test(ua);
+    const standalone = window.matchMedia('(display-mode: standalone)').matches
+        || window.navigator.standalone === true;
+    if (!isMobile || standalone) return; // desktop or already installed
+
+    let deferred = null;
+    window.addEventListener('beforeinstallprompt', (e) => {
+        e.preventDefault();
+        deferred = e;
+        btn.classList.remove('hidden');
+    });
+    window.addEventListener('appinstalled', () => btn.classList.add('hidden'));
+
+    const isIos = /iPhone|iPad|iPod/i.test(ua);
+    if (isIos) btn.classList.remove('hidden'); // instructions path
+
+    btn.addEventListener('click', async () => {
+        if (deferred) {
+            deferred.prompt();
+            try { await deferred.userChoice; } catch (e) { /* ignore */ }
+            deferred = null;
+            btn.classList.add('hidden');
+            return;
+        }
+        showInstallHint();
+    });
+}
+
+function showInstallHint() {
+    const existing = document.getElementById('installHint');
+    if (existing) { existing.remove(); return; }
+    const el = document.createElement('div');
+    el.id = 'installHint';
+    el.className = 'install-hint';
+    el.innerHTML = 'To install: tap <strong>Share</strong> in the browser, then <strong>Add to Home Screen</strong>.';
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 8000);
+}
+
+/* Reset the rider form to the project defaults (useful after applying
+   ride averages from the calibration). */
+const FORM_DEFAULTS = {
+    bike: 'M2S', batteryWh: '800', boostDuration: '30',
+    riderWeight: '82', bikeWeight: '23', cadence: '75', riderPower: '200',
+    ecoWkg: '1.36', autoWkg: '2.73', trailWkg: '5.45', turboWkg: '7.72'
+};
+
+function applyFormDefaults() {
+    Object.entries(FORM_DEFAULTS).forEach(([id, value]) => {
+        const el = document.getElementById(id);
+        if (el) el.value = value;
+    });
+}
+
+function initResetDefaults() {
+    const btn = document.getElementById('resetDefaults');
+    if (!btn) return;
+    btn.addEventListener('click', () => {
+        applyFormDefaults();
+        saveForm();
+        updateSetup();
+    });
+}
+
+/* Drop the loaded ride library: charts, map, selector and the ride-derived
+   analysis. The calibration is NOT touched - it is a measurement stored on
+   the device, not part of the loaded files (see resetApp for a full wipe). */
+function clearRides() {
+    loadedRides = [];
+    selectedRideIndex = 0;
+    graphOrder = null;
+    rideCharts.forEach((c) => c.destroy());
+    rideCharts = [];
+    if (modalChart) { modalChart.destroy(); modalChart = null; }
+    if (rideMap) { rideMap.remove(); rideMap = null; }
+    rideMapPoints = [];
+    lastRideAnalysis = null;
+    const graphs = document.getElementById('rideGraphs');
+    if (graphs) graphs.innerHTML = '';
+    const picker = document.getElementById('rideSelector');
+    if (picker) picker.innerHTML = '';
+    const mapLegend = document.getElementById('mapLegend');
+    if (mapLegend) mapLegend.innerHTML = '';
+    const ridePicker = document.getElementById('ridePickerRow');
+    if (ridePicker) ridePicker.classList.add('hidden');
+    const calReport = document.getElementById('calibrationReport');
+    if (calReport) calReport.innerHTML = '';
+    const rideMapBox = document.getElementById('rideMap');
+    if (rideMapBox) rideMapBox.innerHTML = '';
+    renderCalibrationState();
+    renderRideInsights();
+}
+
+/* Drop the loaded route file: geometry picker, file summary and the track
+   it contributed. The analysis panel is refilled by whoever loads next. */
+function clearRouteFile() {
+    parsedRoute = null;
+    selectedGeometries = [];
+    routeFileName = null;
+    const summary = document.getElementById('fileSummary');
+    if (summary) summary.innerHTML = '';
+    ['geometryPanel', 'geometryPicker', 'fileSummary']
+        .forEach((id) => { const el = document.getElementById(id); if (el) el.classList.add('hidden'); });
+}
+
+/* Clear all: drop the loaded rides, the calibration and reset the form. */
+/* Total reset: rides, calibration, route analysis, forms and saved
+   settings. Reachable from the Route tab and from the ? dialog. */
+function resetApp() {
+    if (!window.confirm('Reset the app to defaults? This removes the loaded rides, the calibration, the route analysis and any saved settings.')) return;
+
+    try {
+        ['avinox-form', 'avinox-calibration', 'avinox-graph-order', 'avinox-pinned-graphs']
+            .forEach((k) => localStorage.removeItem(k));
+    } catch (e) { /* ignore */ }
+
+    /* Rides (the calibration is in localStorage and is removed above). */
+    clearRides();
+    lastCalcRes = null;
+
+    /* Route / analysis */
+    clearRouteFile();
+    routeStats = null;
+    routeGrades = null;
+    analysisSourceLabel = null;
+    const srcLabel = document.getElementById('analysisSource');
+    if (srcLabel) srcLabel.innerText = '';
+    const missionResults = document.getElementById('missionResults');
+    if (missionResults) missionResults.classList.add('hidden');
+    const missionEmpty = document.getElementById('missionEmpty');
+    if (missionEmpty) missionEmpty.classList.remove('hidden');
+    ['routeAnalysis', 'routeModes', 'elevationPanel', 'fileSummary', 'geometryPanel', 'geometryPicker']
+        .forEach((id) => { const el = document.getElementById(id); if (el) el.classList.add('hidden'); });
+    const verdict = document.getElementById('energyVerdict');
+    if (verdict) { verdict.innerText = '--'; verdict.className = 'badge badge-soft'; }
+    const breakdown = document.getElementById('energyBreakdown');
+    if (breakdown) breakdown.innerHTML = 'Enter route parameters and execute the analysis to compute the electrical projection.';
+    ['gradeBars', 'climbList', 'routeModesGrid', 'routeModeNotes'].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.innerHTML = '';
+    });
+    const routeFile = document.getElementById('routeFileInput');
+    if (routeFile) routeFile.value = '';
+    const fileStatus = document.getElementById('fileStatus');
+    if (fileStatus) { fileStatus.className = 'file-status'; fileStatus.innerText = ''; }
+    const targetKm = document.getElementById('targetKm');
+    if (targetKm) targetKm.value = '70';
+    const targetH = document.getElementById('targetH_m');
+    if (targetH) targetH.value = '1500';
+    const surface = document.getElementById('surface');
+    if (surface) surface.value = 'mixed';
+    const reserve = document.getElementById('reservePercent');
+    if (reserve) reserve.value = '15';
+
+    /* Tuner */
+    applyFormDefaults();
+    if (typeof updateSetup === 'function') updateSetup();
+
+    renderCalibrationState();
+    renderRideInsights();
+}
+
+/* Full reset: one global action, in the header (the Route tab and the
+   Knowledge Base no longer carry their own copy). */
+function initAppReset() {
+    const btn = document.getElementById('resetAppBtn');
+    if (btn) btn.addEventListener('click', resetApp);
+}
+
+/* Enlarged chart modal. */
+function initChartModal() {
+    const dlg = document.getElementById('chartModal');
+    const closeBtn = document.getElementById('chartModalClose');
+    if (!dlg || !closeBtn) return;
+    closeBtn.addEventListener('click', () => dlg.close());
+    dlg.addEventListener('close', () => {
+        if (modalChart) { modalChart.destroy(); modalChart = null; }
+    });
+}
+
+/* Knowledge Base as a modal dialog (like the ARE "?" button). */
+function initKbDialog() {
+    const dlg = document.getElementById('tabGuide');
+    const openBtn = document.getElementById('kbOpenBtn');
+    const closeBtn = document.getElementById('kbCloseBtn');
+    if (!dlg || !document.getElementById('kbOpenBtn')) return;
+    document.getElementById('kbOpenBtn').addEventListener('click', () => {
+        if (typeof dlg.showModal === 'function') dlg.showModal();
+        else dlg.setAttribute('open', '');
+    });
+    const close = document.getElementById('kbCloseBtn');
+    if (close) close.addEventListener('click', () => dlg.close());
+    dlg.querySelectorAll('.kb-nav a').forEach((a) => {
+        a.addEventListener('click', () => { if (dlg.open) dlg.close(); });
+    });
+}
 
 /* Theme toggle (dark variant): persists the choice and re-renders the
    charts, which read their colours from the CSS custom properties. */
@@ -1272,8 +2381,7 @@ window.addEventListener('DOMContentLoaded', () => {
 function switchTab(tabName) {
     const workspaces = {
         calc: { tab: document.getElementById('tabCalc'), button: document.getElementById('tabCalcBtn') },
-        mission: { tab: document.getElementById('tabMission'), button: document.getElementById('tabMissionBtn') },
-        guide: { tab: document.getElementById('tabGuide'), button: document.getElementById('tabGuideBtn') }
+        route: { tab: document.getElementById('tabRoute'), button: document.getElementById('tabRouteBtn') }
     };
 
             Object.keys(workspaces).forEach((key) => {
