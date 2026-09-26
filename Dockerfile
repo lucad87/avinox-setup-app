@@ -1,34 +1,31 @@
-# --- STAGE 1: Compilazione del codice (Build) ---
+# --- STAGE 1: build ---
 FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Copia i file di configurazione per installare TUTTE le dipendenze (incluse quelle di sviluppo)
+# Every dependency, dev ones included: the TypeScript compiler is one of them.
 COPY package*.json tsconfig.json ./
 RUN npm ci
 
-# Copia il codice sorgente del backend e compila in JavaScript
 COPY src/ ./src/
 RUN npm run build
 
-# --- STAGE 2: Ambiente di esecuzione leggero (Production) ---
+# --- STAGE 2: runtime ---
 FROM node:20-alpine AS runner
 
 WORKDIR /app
 ENV NODE_ENV=production
 
-# Copia i package.json e installa SOLO le dipendenze di produzione (niente TypeScript o strumenti di sviluppo)
 COPY package*.json ./
-RUN npm ci --only=production
+RUN npm ci --omit=dev && npm cache clean --force
 
-# Copia il backend compilato in JavaScript dallo Stage 1
 COPY --from=builder /app/dist ./dist
-
-# Copia l'interfaccia grafica (Frontend statico)
 COPY public ./public
 
-# Espone la porta interna utilizzata dall'applicazione
-EXPOSE 3000
+# The official image ships an unprivileged user: the server needs no root.
+USER node
 
-# Avvia l'applicazione in modalità produzione
-CMD ["npm", "run", "serve"]
+EXPOSE 3080
+
+# node directly, not npm: the process receives SIGTERM and stops cleanly.
+CMD ["node", "dist/server.js"]

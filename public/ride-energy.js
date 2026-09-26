@@ -23,6 +23,13 @@
     // Under this drop a 1 % step of the battery gauge is too coarse to measure.
     var MIN_BATTERY_DROP_PCT = 15;
 
+    /* A ride outside this window is not a measurement of assisted riding: the
+       motor barely ran, or the reading is off. The lower bound is the one the
+       server applies to the personal factor (src/energy-model.ts); a test
+       keeps the two equal. */
+    var PLAUSIBLE_WH_PER_KM_MIN = 2.5;
+    var PLAUSIBLE_WH_PER_KM_MAX = 50;
+
     var EFFICIENCY_DEFAULT = 0.8;
     var EFFICIENCY_MIN = 0.6;
     var EFFICIENCY_MAX = 0.95;
@@ -93,6 +100,8 @@
         constants: {
             MAX_SAMPLE_INTERVAL_S: MAX_SAMPLE_INTERVAL_S,
             MIN_BATTERY_DROP_PCT: MIN_BATTERY_DROP_PCT,
+            PLAUSIBLE_WH_PER_KM_MIN: PLAUSIBLE_WH_PER_KM_MIN,
+            PLAUSIBLE_WH_PER_KM_MAX: PLAUSIBLE_WH_PER_KM_MAX,
             EFFICIENCY_DEFAULT: EFFICIENCY_DEFAULT,
             EFFICIENCY_MIN: EFFICIENCY_MIN,
             EFFICIENCY_MAX: EFFICIENCY_MAX
