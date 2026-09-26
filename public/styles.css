@@ -1559,6 +1559,7 @@ code {
 .energy-rows .kv-row { padding: .1rem 0; font-size: 12.5px; }
 .energy-ok { color: var(--accent); font-weight: 700; }
 .energy-warn { color: var(--mode-trail); font-weight: 700; }
+.status-warn { color: var(--mode-trail); font-weight: 700; }
 
 /* Barra impilata della distribuzione + chip per livello */
 .mode-bar {

@@ -368,7 +368,7 @@
                             <div class="card-body energy-grid">
                                 <div class="energy-block">
                                     <div class="energy-head">
-                                        <span class="energy-title">Estimated use</span>
+                                        <span class="energy-title" id="energyUseTitle">Estimated use</span>
                                         <span id="energyCalBadge" class="badge badge-soft hidden">—</span>
                                     </div>
                                     <p class="energy-figure">
@@ -377,6 +377,7 @@
                                         <span id="energyRange" class="energy-side"></span>
                                     </p>
                                     <p class="energy-note" id="energyBaseline">—</p>
+                                    <p class="energy-note energy-warn hidden" id="energyFactorNote"></p>
                                 </div>
 
                                 <div class="energy-block">
@@ -540,6 +541,7 @@
                                 <button type="button" id="calibrationReset" class="mini-btn">Remove calibration</button>
                             </div>
                             <p class="hint hidden" id="calibrationStandaloneNote">This factor was measured on the rides you loaded earlier and is stored on this device: it stays applied to the Tuner, to this analysis and to every route you plan, even now that the recordings are no longer loaded. <strong>Remove calibration</strong> goes back to the generic model.</p>
+                            <p class="hint hidden" id="calibrationAnomaly"></p>
                             <p class="hint" id="calibrationEmpty">Ride the bike with the modes you set in the Tuner, then load the recordings here. The real motor energy of your rides, compared with what the model would predict, becomes a personal factor applied to every range, runtime and energy estimate.</p>
                             <div id="calibrationReport" class="hidden"></div>
                         </div>

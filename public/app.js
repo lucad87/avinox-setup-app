@@ -29,6 +29,20 @@ function setCalibration(cal) {
     renderCalibrationState();
 }
 
+/* The client guards on the PHYSICAL measurement only (Wh/km), not on a factor:
+   the factor here is actualWh / modelWh with the client's own motor model, and
+   it is a different quantity from the personalFactor of the server (energy per
+   km). They do not share a scale - on the same real rides the client's factor
+   is 2.0-2.4 while the server's is 0.64-1.04 - so a factor window here would
+   reject every legitimate ride. See PLAUSIBLE_* in src/server.ts for the
+   window the server applies to the factor it actually uses. */
+const PLAUSIBLE_WH_PER_KM_MIN = 2.5;
+
+function calibrationIsImplausible(cal) {
+    if (!cal) return false;
+    return Number.isFinite(cal.whPerKm) && cal.whPerKm < PLAUSIBLE_WH_PER_KM_MIN;
+}
+
 /* ---- Loaded files on this device (IndexedDB) ---------------------------- */
 /* The calibration is a measurement and survives a refresh; the files it was
    measured FROM used to vanish with it, which made the two look
@@ -290,29 +304,59 @@ function renderCalibrationState() {
     }
 
     if (cal) {
+        const implausible = calibrationIsImplausible(cal);
         badge.classList.remove('hidden');
         badge.innerText = cal.whPerKm ? cal.whPerKm + ' Wh/km' : 'calibrated';
+        if (implausible) {
+            badge.className = 'badge badge-warn';
+        } else {
+            badge.className = 'badge badge-ok';
+        }
         /* The Tuner's own invitation disappears as soon as there is a factor. */
         const cta = document.getElementById('tunerCalibrationCta');
         if (cta) cta.classList.add('hidden');
         const calState = document.getElementById('calibrationState');
         if (calState) {
             const count = loadedRides.length;
-            calState.innerText = (cal.whPerKm ? cal.whPerKm + ' Wh/km · ' : '')
-                + (count === 0 ? 'saved' : (count === 1 ? 'this ride' : 'average of ' + count + ' rides'));
+            calState.innerText = implausible
+                ? 'measurement not applied'
+                : (cal.whPerKm ? cal.whPerKm + ' Wh/km · ' : '')
+                    + (count === 0 ? 'saved' : (count === 1 ? 'this ride' : 'average of ' + count + ' rides'));
         }
+        /* Out of the sane window: say it, in the card and in the Tuner. */
+        const anomaly = document.getElementById('calibrationAnomaly');
+        if (anomaly) {
+            if (implausible) {
+                anomaly.classList.remove('hidden');
+                anomaly.innerHTML = 'This measurement looks anomalous (<strong>' + (cal.whPerKm ?? '?')
+                    + ' Wh/km</strong>, factor ×' + (cal.factor != null ? Number(cal.factor).toFixed(2) : '?')
+                    + '): a factor like this means the model and the bike disagree by a large multiple, which is a data problem rather than a riding style. '
+                    + 'It is <strong>not applied</strong> — ranges, runtime and route estimates come from the generic model. Removing it or loading a normal ride fixes it.';
+            } else {
+                anomaly.classList.add('hidden');
+                anomaly.innerHTML = '';
+            }
+        }
+
         if (tunerState) {
             /* Say what the factor covers: the Tuner's number is the average
                over the loaded rides (or the stored one), while a single
-               recording has its own - they legitimately differ. */
-            const km = cal.rideLabel ? String(cal.rideLabel).replace(/^\d+ ride\(s\) · /, '') : '';
-            const count = loadedRides.length;
-            let scope;
-            if (count === 0) scope = 'saved · ' + (cal.rideLabel || '');
-            else if (count === 1) scope = 'this ride · ' + km;
-            else scope = 'average of ' + count + ' rides · ' + km;
-            tunerState.innerText = (cal.whPerKm ? cal.whPerKm + ' Wh/km · ' : '') + scope;
-            tunerState.className = 'kv-value status-ok';
+               recording has its own - they legitimately differ. When the
+               measurement is out of the sane window it is not applied, and
+               the Tuner has to say that instead of claiming to be calibrated. */
+            if (implausible) {
+                tunerState.innerText = 'measurement not applied · ' + (cal.whPerKm ?? '?') + ' Wh/km';
+                tunerState.className = 'kv-value status-warn';
+            } else {
+                const km = cal.rideLabel ? String(cal.rideLabel).replace(/^\d+ ride\(s\) · /, '') : '';
+                const count = loadedRides.length;
+                let scope;
+                if (count === 0) scope = 'saved · ' + (cal.rideLabel || '');
+                else if (count === 1) scope = 'this ride · ' + km;
+                else scope = 'average of ' + count + ' rides · ' + km;
+                tunerState.innerText = (cal.whPerKm ? cal.whPerKm + ' Wh/km · ' : '') + scope;
+                tunerState.className = 'kv-value status-ok';
+            }
         }
         if (summary) summary.classList.remove('hidden');
         if (emptyMsg) emptyMsg.classList.add('hidden');
@@ -322,9 +366,11 @@ function renderCalibrationState() {
         if (sourceEl) sourceEl.innerText = cal.rideLabel;
         if (note) {
             note.classList.remove('hidden');
-            note.innerText = 'Range and runtime come from your rides: ' +
-                (cal.whPerKm ?? '?') + ' Wh/km of motor energy, measured while riding at assist level ' +
-                (cal.avgLevel ?? '?') + '. Estimates are projected per mode from that real consumption.';
+            note.innerText = implausible
+                ? 'The measurement on these rides is out of the plausible range, so it is NOT applied: the ranges you see come from the generic model.'
+                : 'Range and runtime come from your rides: ' +
+                    (cal.whPerKm ?? '?') + ' Wh/km of motor energy, measured while riding at assist level ' +
+                    (cal.avgLevel ?? '?') + '. Estimates are projected per mode from that real consumption.';
         }
         const resetBtn = document.getElementById('calibrationReset');
         if (resetBtn && !resetBtn.dataset.wired) {
@@ -2824,12 +2870,18 @@ window.addEventListener('DOMContentLoaded', () => {
 function measureRide(ride) {
     /* This ride's own numbers, measured the same way the calibration is:
        reusing analyzeRideForCalibration on a single ride keeps one definition
-       of "real consumption" in the app. */
+       of "real consumption" in the app. `wh` is the measured motor energy,
+       which becomes the headline for a replay. */
     try {
         const own = analyzeRideForCalibration({ metadata: ride.metadata, samples: ride.samples });
         const km = parseFloat(own.summary.distanceKm);
         if (!(own.summary.whPerKm > 0) || !(km > 1)) return null;
-        return { whPerKm: own.summary.whPerKm, km: km, hm: ride.metadata.ascent || 0 };
+        return {
+            whPerKm: own.summary.whPerKm,
+            km: km,
+            hm: ride.metadata.ascent || 0,
+            wh: own.summary.actualWh
+        };
     } catch (e) {
         return null;
     }
@@ -3418,10 +3470,23 @@ const MODE_KEYS = ['eco', 'auto', 'trail', 'turbo'];
 function renderEnergyCard(res, selectedBattery) {
     const en = res.energy;
     const set = (id, txt) => { const el = document.getElementById(id); if (el) el.innerText = txt; };
+    /* A recording carries its own measurement: that is the headline, and the
+       model projection becomes the comparison. A planned route has no
+       measurement, so there the projection IS the number. */
+    const measured = (lastFactorSource === 'ride' && selectedRideMetrics
+        && Number.isFinite(selectedRideMetrics.wh)) ? selectedRideMetrics : null;
 
-    set('energyEstimated', en.estimated);
-    set('energyRange', en.low + '–' + en.high + ' Wh');
-    set('energyBaseline', 'Baseline: ' + en.base + ' Wh (' + en.flat + ' flat + ' + en.climb + ' climb)');
+    if (measured) {
+        set('energyUseTitle', 'Measured use');
+        set('energyEstimated', Math.round(measured.wh));
+        set('energyRange', 'real · ' + measured.whPerKm + ' Wh/km');
+        set('energyBaseline', 'Model projection: ' + en.estimated + ' Wh (' + en.low + '–' + en.high + ' Wh)');
+    } else {
+        set('energyUseTitle', 'Estimated use');
+        set('energyEstimated', en.estimated);
+        set('energyRange', en.low + '–' + en.high + ' Wh');
+        set('energyBaseline', 'Baseline: ' + en.base + ' Wh (' + en.flat + ' flat + ' + en.climb + ' climb)');
+    }
     set('energyUsable', res.usableWh);
     set('energyPack', 'of ' + selectedBattery + ' Wh pack');
     set('energyCushion', 'Safety cushion: ' + Math.max(0, res.usableWh - en.estimated) + ' Wh remaining at the finish');
@@ -3433,21 +3498,40 @@ function renderEnergyCard(res, selectedBattery) {
         reserveBadge.innerText = res.reserve.percent + '% Reserve';
     }
 
-    /* Where the personal factor comes from, in the badge instead of a banner. */
+    /* Where the personal factor comes from, in the badge instead of a banner -
+       and when the measurement was refused, it says that instead of applying
+       it silently. */
     const calBadge = document.getElementById('energyCalBadge');
+    const factorNote = document.getElementById('energyFactorNote');
     if (calBadge) {
-        if (res.basedOnRealRides) {
+        if (res.factorRejected) {
+            calBadge.classList.remove('hidden');
+            calBadge.className = 'badge badge-warn';
+            calBadge.innerText = '×' + (res.factorRaw != null ? res.factorRaw : '?') + ' not applied';
+            calBadge.title = 'The measurement on this input (' + (res.realWhPerKm ?? '?')
+                + ' Wh/km) is outside the plausible range, so the personal factor was not applied.';
+            if (factorNote) {
+                factorNote.classList.remove('hidden');
+                factorNote.innerText = 'Anomalous measurement (' + (res.realWhPerKm ?? '?') + ' Wh/km → ×'
+                    + (res.factorRaw != null ? res.factorRaw : '?') + '): the personal factor is not applied, '
+                    + 'these figures come from the generic model.';
+            }
+        } else if (res.basedOnRealRides) {
             const fromRide = lastFactorSource === 'ride' && !!selectedRideMetrics;
             calBadge.classList.remove('hidden');
+            calBadge.className = 'badge badge-soft';
             calBadge.innerText = '×' + res.personalFactor.toFixed(2) + (fromRide ? ' this ride' : ' calibration');
             calBadge.title = fromRide
                 ? 'Scaled by the consumption measured on this recording: ' + selectedRideMetrics.whPerKm
                     + ' Wh/km over ' + selectedRideMetrics.km + ' km'
                 : 'Scaled by the calibration stored on this device';
+            if (factorNote) { factorNote.classList.add('hidden'); factorNote.innerText = ''; }
         } else {
             calBadge.classList.add('hidden');
+            calBadge.className = 'badge badge-soft';
             calBadge.innerText = '';
             calBadge.title = '';
+            if (factorNote) { factorNote.classList.add('hidden'); factorNote.innerText = ''; }
         }
     }
 
@@ -3488,14 +3572,19 @@ function renderEnergyCard(res, selectedBattery) {
 
 /* Back to the empty card (a reset leaves #missionResults hidden anyway). */
 function resetEnergyCard() {
+    const title = document.getElementById('energyUseTitle');
+    if (title) title.innerText = 'Estimated use';
     ['energyEstimated', 'energyUsable'].forEach((id) => {
         const el = document.getElementById(id);
         if (el) el.innerText = '—';
     });
-    ['energyRange', 'energyBaseline', 'energyPack', 'energyCushion', 'energyDistributionTotal'].forEach((id) => {
-        const el = document.getElementById(id);
-        if (el) el.innerText = '';
-    });
+    ['energyRange', 'energyBaseline', 'energyPack', 'energyCushion', 'energyDistributionTotal', 'energyFactorNote']
+        .forEach((id) => {
+            const el = document.getElementById(id);
+            if (el) el.innerText = '';
+        });
+    const factorNote = document.getElementById('energyFactorNote');
+    if (factorNote) factorNote.classList.add('hidden');
     ['energyCalBadge', 'energyReserveBadge', 'energyConfidenceBadge'].forEach((id) => {
         const el = document.getElementById(id);
         if (el) { el.classList.add('hidden'); el.innerText = ''; }

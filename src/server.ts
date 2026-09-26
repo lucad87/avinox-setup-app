@@ -285,6 +285,27 @@ function calculateMetrics(watts: number, speedKmH: number, batteryWh: number) {
 
 const PACK_EFFICIENCY = 0.8; // motor energy vs energy taken from the pack
 
+/* A personal factor only makes sense inside a sane window. Outside it the
+   model and the bike disagree by ~5x or more, which is a measurement artefact
+   (the motor was off for most of the ride, or the file's power field reads
+   differently) rather than a riding style - one real file measured 1.7 Wh/km
+   against a model prediction of 13, i.e. a factor of 0.13, which collapsed
+   every estimate to a fifth of its baseline. The window is wide against real
+   data: seven real rides gave factors from 0.64 to 1.04. When a measurement
+   is rejected it is NOT applied silently - the response says so and the UI
+   tells the user. */
+const PLAUSIBLE_FACTOR_MIN = 0.5;
+const PLAUSIBLE_FACTOR_MAX = 1.5;
+const PLAUSIBLE_WH_PER_KM_MIN = 2.5;
+
+function implausibleReason(whPerKm: number, factor: number | null): string | null {
+    if (!(whPerKm >= PLAUSIBLE_WH_PER_KM_MIN)) return 'consumption-too-low';
+    if (factor != null && (factor < PLAUSIBLE_FACTOR_MIN || factor > PLAUSIBLE_FACTOR_MAX)) {
+        return 'factor-out-of-range';
+    }
+    return null;
+}
+
 function realMetrics(
     modeLevel: number,
     realMotorWhPerKm: number,
@@ -530,8 +551,11 @@ app.post('/api/calculate', (req: Request, res: Response) => {
     // The range/runtime then come from the real data, not from "cap x hours".
     const realWhPerKm = parseFloat(String(body.realWhPerKm));
     const realLevel = parseFloat(String(body.realLevel));
+    const realReject = (Number.isFinite(realWhPerKm) && Number.isFinite(realLevel))
+        ? implausibleReason(realWhPerKm, null) : null;
     const useReal = Number.isFinite(realWhPerKm) && realWhPerKm > 0
-        && Number.isFinite(realLevel) && realLevel >= 1 && realLevel <= 15;
+        && Number.isFinite(realLevel) && realLevel >= 1 && realLevel <= 15
+        && !realReject;
 
     if (useReal) {
         const speeds: Record<ModeKey, number> = { eco: 22, auto: 18, trail: 14, turbo: 10 };
@@ -644,13 +668,22 @@ app.post('/api/calculate-mission', (req: Request, res: Response) => {
     const realKm = parseFloat(String(body.realKm));
     const realHm = parseFloat(String(body.realHm));
     let personalFactor = 1;
-    const useReal = Number.isFinite(realWhPerKm) && realWhPerKm > 0
+    let factorRaw: number | null = null;
+    let factorRejected: string | null = null;
+    const hasReal = Number.isFinite(realWhPerKm) && realWhPerKm > 0
         && Number.isFinite(realKm) && realKm > 1;
-    if (useReal) {
+    if (hasReal) {
         const modelWhForRides = realKm * 3.8 + (Number.isFinite(realHm) ? realHm : 0) * 0.24 * (totalWeight / 100);
         const modelWhPerKm = modelWhForRides / realKm;
-        if (modelWhPerKm > 0.5) personalFactor = realWhPerKm / modelWhPerKm;
+        if (modelWhPerKm > 0.5) {
+            factorRaw = realWhPerKm / modelWhPerKm;
+            factorRejected = implausibleReason(realWhPerKm, factorRaw);
+            /* Rejected: the estimate falls back to the model, and the client
+               is told why instead of silently scaling by an absurd number. */
+            if (!factorRejected) personalFactor = factorRaw;
+        }
     }
+    const useReal = hasReal && !factorRejected;
 
     const energyEstimated = baseEnergy * surfaceFactor * steepnessFactor * personalFactor;
     const qualityId = String(body.elevationQuality);
@@ -754,6 +787,11 @@ app.post('/api/calculate-mission', (req: Request, res: Response) => {
         steepnessFactor,
         personalFactor: Math.round(personalFactor * 100) / 100,
         basedOnRealRides: useReal,
+        /* The raw measurement and, when it was refused, the reason - the UI
+           shows both rather than scaling in silence. */
+        realWhPerKm: Number.isFinite(realWhPerKm) ? realWhPerKm : null,
+        factorRaw: factorRaw == null ? null : Math.round(factorRaw * 100) / 100,
+        factorRejected,
         reserve: { percent: reservePercent, wh: Math.round(reserveWh) },
         usableWh: Math.round(usableWh),
         confidence,
