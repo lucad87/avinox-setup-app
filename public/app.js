@@ -23,6 +23,23 @@ function getCalibration() {
     } catch (e) { return null; }
 }
 
+/* The stored calibration as the API reads it. Surface, steep share and
+   efficiency are absent on a calibration stored before they existed: the
+   server then uses its defaults. */
+function calibrationPayload() {
+    const cal = getCalibration();
+    if (!cal || !(cal.whPerKm > 0) || !((cal.realKm || 0) > 1)) return null;
+    const payload = {
+        realWhPerKm: cal.whPerKm,
+        realKm: Math.round(cal.realKm * 10) / 10,
+        realHm: Math.round(cal.realHm || 0)
+    };
+    if (cal.efficiency) payload.realEfficiency = cal.efficiency;
+    if (cal.surface) payload.realSurface = cal.surface;
+    if (Number.isFinite(cal.steepSharePct)) payload.realSteepShare = cal.steepSharePct;
+    return payload;
+}
+
 function setCalibration(cal) {
     try {
         if (cal) localStorage.setItem(CALIBRATION_KEY, JSON.stringify(cal));
@@ -490,8 +507,7 @@ function renderCalibrationState() {
                 : 'Your measured consumption: ' + (cal.whPerKm ?? '?') + ' Wh/km of motor energy over the whole ride, '
                     + 'taken from the battery at ' + Math.round((cal.efficiency || 0.8) * 100) + '% efficiency'
                     + (cal.efficiencyMeasured ? ' (measured on the battery drop). ' : ' (default). ')
-                    + 'The Route plan scales its energy estimate with it; these two charts are the model\'s own, '
-                    + 'because a recording does not say which mode each assist value was.';
+                    + 'The Route plan and the Tuner\'s range charts both scale their estimates with it.';
         }
         const resetBtn = document.getElementById('calibrationReset');
         if (resetBtn && !resetBtn.dataset.wired) {
@@ -2427,17 +2443,16 @@ async function updateSetup() {
         trailWkg: document.getElementById('trailWkg').value,
         turboWkg: document.getElementById('turboWkg').value
     };
-    /* The Tuner's per-mode charts are the model's own. A recording cannot
-       personalise them: that would need to know which mode each recorded assist
-       value was, and the file does not say. The measured consumption is used by
-       the route plan instead, where it needs no such attribution. */
+    /* The measured consumption sets the overall level of the Tuner's ranges
+       the same way it scales a route; the modes then split it by their motor
+       share, so no recorded assist value has to be named as a mode. */
+    Object.assign(data, calibrationPayload() || {});
 
 
     try {
         const response = await axios.post('/api/calculate', data);
         const res = response.data;
         saveForm();
-        const cal = getCalibration();
         document.getElementById('sysWeight').innerText = 'Total Weight: ' + res.totalWeight + ' kg';
         
         const modes = [
@@ -2466,7 +2481,7 @@ async function updateSetup() {
             const drawHint = (m.data.typicalPower < m.data.maxPower)
                 ? ` <span class="kv-hint">(expected draw ~${m.data.typicalPower} W at your input)</span>` : '';
             const calHint = res.basedOnRealRides
-                ? ` <span class="kv-hint">· from your rides (${cal ? cal.whPerKm : '?'} Wh/km)</span>` : '';
+                ? ` <span class="kv-hint">· scaled by your rides (×${res.personalFactor})</span>` : '';
             const torqueHint = (m.data.idealTorque !== m.data.maxTorque)
                 ? ` <span class="kv-hint">(computed ${m.data.idealTorque} Nm)</span>` : '';
 
@@ -2478,6 +2493,8 @@ async function updateSetup() {
                     kvRow('Assist Bound:', `${m.data.level}${m.data.levelPct ? ` <span class="kv-hint">· ${m.data.levelPct} of rider input</span>` : ''}`),
                     kvRow('Power Limit:', m.data.watts, powerHint + drawHint + calHint),
                     kvRow('Max Torque:', m.data.torque, torqueHint),
+                    kvRow('Consumption:', `~${m.data.whPerKm} Wh/km`,
+                        ` <span class="kv-hint">· ${m.data.range} km on ${res.rangeModel.referenceClimbMPerKm} m/km mixed ground</span>`),
                     kvRow('Max Overrun:', m.data.maxOverrun),
                     kvRow('Assist Start:', m.data.assistStart),
                     kvRow('Continued Assist:', m.data.continuedAssist),
@@ -3088,21 +3105,10 @@ document.getElementById('missionForm').addEventListener('submit', async (e) => {
         data.realSteepShare = data.climbSummary ? data.climbSummary.steepShare : 0;
         lastFactorSource = 'ride';
     } else {
-        const cal2 = getCalibration();
-        if (cal2 && cal2.whPerKm > 0) {
-            const realKm = cal2.realKm || 0;
-            const realHm = cal2.realHm || 0;
-            if (realKm > 1) {
-                data.realWhPerKm = cal2.whPerKm;
-                data.realKm = Math.round(realKm * 10) / 10;
-                data.realHm = Math.round(realHm);
-                /* Absent on a calibration stored before these existed: the
-                   server then uses its defaults. */
-                if (cal2.efficiency) data.realEfficiency = cal2.efficiency;
-                if (cal2.surface) data.realSurface = cal2.surface;
-                if (Number.isFinite(cal2.steepSharePct)) data.realSteepShare = cal2.steepSharePct;
-                lastFactorSource = 'calibration';
-            }
+        const calibration = calibrationPayload();
+        if (calibration) {
+            Object.assign(data, calibration);
+            lastFactorSource = 'calibration';
         }
     }
 

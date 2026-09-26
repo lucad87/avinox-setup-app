@@ -196,3 +196,85 @@ export function estimateRouteEnergy(i: RouteEnergyInput) {
         scalingFactor: feasible || required <= 0 ? 1 : usableWh / required
     };
 }
+
+/* ==================================================================
+ * TUNER RANGES
+ * ------------------------------------------------------------------
+ * The Tuner's range and runtime come from the same model as the route, on
+ * a reference terrain, so the two tabs quote the same Wh/km for the same
+ * ground. The route model describes riding with the DJI stock modes in the
+ * mix it assigns to that terrain; each mode then takes its part of the work
+ * by its motor share (motor / (motor + rider) at the rider's input): the
+ * terrain decides how much energy a kilometre needs, the assist decides who
+ * supplies it.
+ * ================================================================== */
+
+export type ModeKey = 'eco' | 'auto' | 'trail' | 'turbo';
+export const MODE_KEYS: ModeKey[] = ['eco', 'auto', 'trail', 'turbo'];
+
+export const REFERENCE_CLIMB_M_PER_KM = 15;
+export const REFERENCE_SURFACE = 'mixed';
+// One moving average for every mode: the terrain is the same, and a duration
+// per mode then reads as "how long the battery lasts" rather than as a pace.
+export const REFERENCE_SPEED_KMH = 16;
+
+/** Share of the distance ridden in each mode, from the climbing share of the energy (0..1). */
+export function modeMixFor(climbRatio: number): Record<ModeKey, number> {
+    const c = clamp(climbRatio, 0, 1);
+    const f = 1 - c;
+    return {
+        eco: 0.40 * f + 0.15 * c,
+        auto: 0.50 * f + 0.45 * c,
+        trail: 0.10 * f + 0.32 * c,
+        turbo: 0.00 * f + 0.08 * c
+    };
+}
+
+export function motorShareOf(motorW: number, riderW: number): number {
+    return motorW > 0 && riderW > 0 ? motorW / (motorW + riderW) : 0;
+}
+
+export interface TunerRangeInput {
+    totalWeight: number;
+    batteryWh: number;
+    riderW: number;
+    modeMotorW: Record<ModeKey, number>;
+    stockMotorW: Record<ModeKey, number>;
+    real: MeasuredRides | null;
+}
+
+export interface ModeRange {
+    whPerKm: number;
+    range: number;
+    runtime: number;
+}
+
+export function tunerRanges(i: TunerRangeInput) {
+    const terrain = terrainEnergy({
+        km: 1,
+        hm: REFERENCE_CLIMB_M_PER_KM,
+        totalWeight: i.totalWeight,
+        surfaceId: REFERENCE_SURFACE,
+        steepShare: 0
+    });
+    const mix = modeMixFor(terrain.climb / terrain.base);
+    const personal = personalFactorOf(i.real, i.totalWeight);
+    const referenceWhPerKm = terrain.estimated * personal.factor;
+    const stockShare = MODE_KEYS.reduce((sum, k) => sum + mix[k] * motorShareOf(i.stockMotorW[k], i.riderW), 0);
+
+    const rangeOf = (motorW: number): ModeRange => {
+        const whPerKm = stockShare > 0 ? referenceWhPerKm * motorShareOf(motorW, i.riderW) / stockShare : 0;
+        if (!(whPerKm > 0)) return { whPerKm: 0, range: 0, runtime: 0 };
+        const range = i.batteryWh / whPerKm;
+        return {
+            whPerKm: Math.round(whPerKm * 10) / 10,
+            range: Math.round(range),
+            runtime: Math.round((range / REFERENCE_SPEED_KMH) * 10) / 10
+        };
+    };
+
+    const perMode = (w: Record<ModeKey, number>) =>
+        Object.fromEntries(MODE_KEYS.map((k) => [k, rangeOf(w[k])])) as Record<ModeKey, ModeRange>;
+
+    return { referenceWhPerKm, mix, personal, modes: perMode(i.modeMotorW), stock: perMode(i.stockMotorW) };
+}

@@ -1,14 +1,20 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+    MODE_KEYS,
     MeasuredRides,
+    ModeKey,
     PACK_EFFICIENCY_DEFAULT,
+    REFERENCE_CLIMB_M_PER_KM,
+    REFERENCE_SURFACE,
     estimateRouteEnergy,
+    modeMixFor,
     packEfficiencyOf,
     personalFactorOf,
     reservePercentOf,
     surfaceIdOf,
-    terrainEnergy
+    terrainEnergy,
+    tunerRanges
 } from './energy-model';
 
 const WEIGHT = 102;
@@ -118,4 +124,60 @@ test('an unknown surface is read as mixed', () => {
     assert.equal(surfaceIdOf('gravel'), 'gravel');
     assert.equal(surfaceIdOf('ice'), 'mixed');
     assert.equal(surfaceIdOf(undefined), 'mixed');
+});
+
+/* Motor watts at the default Tuner setup (102 kg, 150 W, 80 RPM) and for the
+   DJI stock modes with the same rider. */
+const CUSTOM_W: Record<ModeKey, number> = { eco: 150, auto: 300, trail: 550, turbo: 800 };
+const STOCK_W: Record<ModeKey, number> = { eco: 200, auto: 773, trail: 773, turbo: 1050 };
+
+function tuner(overrides: Partial<Parameters<typeof tunerRanges>[0]> = {}) {
+    return tunerRanges({
+        totalWeight: WEIGHT, batteryWh: 800, riderW: 150,
+        modeMotorW: CUSTOM_W, stockMotorW: STOCK_W, real: null,
+        ...overrides
+    });
+}
+
+test('the stock modes, mixed as the route model mixes them, consume what the route model says', () => {
+    const t = tuner();
+    const reference = terrainEnergy({
+        km: 1, hm: REFERENCE_CLIMB_M_PER_KM, totalWeight: WEIGHT, surfaceId: REFERENCE_SURFACE, steepShare: 0
+    });
+    const mixed = MODE_KEYS.reduce((sum, k) => sum + t.mix[k] * t.stock[k].whPerKm, 0);
+    assert.ok(Math.abs(t.referenceWhPerKm - reference.estimated) < 1e-9);
+    assert.ok(Math.abs(mixed - reference.estimated) < 0.1, `stock mix ${mixed} vs route ${reference.estimated}`);
+});
+
+test('no mode exceeds the plausible consumption, and more assist costs more', () => {
+    const t = tuner();
+    for (const k of MODE_KEYS) assert.ok(t.modes[k].whPerKm < 50, `${k}: ${t.modes[k].whPerKm} Wh/km`);
+    assert.ok(t.modes.eco.whPerKm < t.modes.auto.whPerKm);
+    assert.ok(t.modes.auto.whPerKm < t.modes.trail.whPerKm);
+    assert.ok(t.modes.trail.whPerKm < t.modes.turbo.whPerKm);
+    assert.ok(t.modes.eco.range > t.modes.turbo.range);
+});
+
+test('changing one mode leaves the others alone', () => {
+    const before = tuner();
+    const after = tuner({ modeMotorW: { ...CUSTOM_W, trail: 700 } });
+    assert.ok(after.modes.trail.range < before.modes.trail.range);
+    for (const k of ['eco', 'auto', 'turbo'] as ModeKey[]) assert.deepEqual(after.modes[k], before.modes[k]);
+});
+
+test('a calibration scales every Tuner range by the personal factor', () => {
+    const generic = tuner();
+    const calibrated = tuner({ real: ride() });
+    assert.equal(calibrated.personal.applied, true);
+    for (const k of MODE_KEYS) {
+        const ratio = generic.modes[k].range / calibrated.modes[k].range;
+        assert.ok(Math.abs(ratio - calibrated.personal.factor) < 0.02, `${k}: ${ratio}`);
+    }
+});
+
+test('the mode mix covers the whole distance on any terrain', () => {
+    for (const c of [0, 0.3, 1]) {
+        const m = modeMixFor(c);
+        assert.ok(Math.abs(m.eco + m.auto + m.trail + m.turbo - 1) < 1e-12);
+    }
 });
