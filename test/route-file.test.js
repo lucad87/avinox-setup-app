@@ -92,3 +92,31 @@ test('the map colours and the grade bars come from the same measurement', () => 
         assert.ok(Math.abs(stats.distributionMeters[band] - profile.meters[band]) < 1e-6, band);
     }
 });
+
+const { declareMissingPrefixes } = require('../public/route-file.js');
+
+/* The shape of the GPX the DJI Avinox app exports: avinox: is never declared. */
+const AVINOX_GPX = `<?xml version="1.0" encoding="UTF-8"?>
+<!-- <avinox:note> in a comment -->
+<gpx version="1.0" creator="Avinox">
+  <trk><extensions><avinox:totalDistance>27211.0</avinox:totalDistance></extensions>
+  <trkseg><trkpt lat="44.46" lon="11.19"><ele>153.0</ele></trkpt></trkseg></trk>
+</gpx>`;
+
+test('an undeclared namespace prefix is declared on the root element', () => {
+    const fixed = declareMissingPrefixes(AVINOX_GPX);
+    assert.match(fixed, /<gpx xmlns:avinox="urn:undeclared:avinox" version="1.0" creator="Avinox">/);
+    assert.equal(fixed.match(/xmlns:avinox=/g).length, 1);
+});
+
+test('a file that declares its prefixes is left as it is', () => {
+    const declared = AVINOX_GPX.replace('<gpx version', '<gpx xmlns:avinox="urn:avinox" version');
+    assert.equal(declareMissingPrefixes(declared), declared);
+    const repaired = declareMissingPrefixes(AVINOX_GPX);
+    assert.equal(declareMissingPrefixes(repaired), repaired);
+});
+
+test('standard KML and GPX namespaces need no repair', () => {
+    const kml = '<?xml version="1.0"?><kml xmlns="http://www.opengis.net/kml/2.2" xmlns:gx="http://www.google.com/kml/ext/2.2"><gx:Track/></kml>';
+    assert.equal(declareMissingPrefixes(kml), kml);
+});

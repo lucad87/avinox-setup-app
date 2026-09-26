@@ -627,14 +627,50 @@
         return null;
     }
 
+    var RESERVED_PREFIXES = { xml: true, xmlns: true };
+
+    /**
+     * Declares the namespace prefixes a file uses without declaring them.
+     * The GPX export of the DJI Avinox app writes <avinox:totalDistance> with
+     * no xmlns:avinox, which a namespace-aware parser (the browser's) refuses
+     * as a whole. The prefixes are bound to placeholder URIs on the root
+     * element; the parser only reads standard GPX/KML elements anyway.
+     */
+    function declareMissingPrefixes(text) {
+        var used = {};
+        var usage = /<\/?([A-Za-z_][\w.-]*):[A-Za-z_][\w.-]*|\s([A-Za-z_][\w.-]*):[A-Za-z_][\w.-]*\s*=/g;
+        var m;
+        while ((m = usage.exec(text)) !== null) used[m[1] || m[2]] = true;
+
+        var declaration = /xmlns:([A-Za-z_][\w.-]*)\s*=/g;
+        while ((m = declaration.exec(text)) !== null) delete used[m[1]];
+
+        var missing = Object.keys(used).filter(function (p) { return !RESERVED_PREFIXES[p]; });
+        if (!missing.length) return text;
+
+        var root = /<([A-Za-z_][\w.:-]*)(?=[\s>\/])/g;
+        var tag;
+        while ((tag = root.exec(text)) !== null) {
+            var before = text.slice(0, tag.index);
+            // A tag name inside a comment is not the root element.
+            if (before.lastIndexOf('<!--') > before.lastIndexOf('-->')) continue;
+            var insertAt = tag.index + tag[0].length;
+            var attrs = missing.map(function (p) { return ' xmlns:' + p + '="urn:undeclared:' + p + '"'; }).join('');
+            return text.slice(0, insertAt) + attrs + text.slice(insertAt);
+        }
+        return text;
+    }
+
     function parseXml(text) {
         if (typeof DOMParser === 'undefined') {
             throw new Error('XML parsing is only available in the browser.');
         }
-        var doc = new DOMParser().parseFromString(text, 'application/xml');
-        if (doc.getElementsByTagName('parsererror').length > 0) {
-            throw new Error('The file is not valid XML.');
-        }
+        var parse = function (t) {
+            var d = new DOMParser().parseFromString(t, 'application/xml');
+            return d.getElementsByTagName('parsererror').length > 0 ? null : d;
+        };
+        var doc = parse(text) || parse(declareMissingPrefixes(text));
+        if (!doc) throw new Error('The file is not valid XML.');
         return doc;
     }
 
@@ -875,6 +911,7 @@
         bandForGrade: bandForGrade,
         gradeBands: GRADE_BANDS,
         detectFormat: detectFormat,
+        declareMissingPrefixes: declareMissingPrefixes,
         parseGpx: parseGpx,
         parseKml: parseKml,
         parseRouteFile: parseRouteFile,

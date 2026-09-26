@@ -4,13 +4,11 @@ import {
     MODE_KEYS,
     MeasuredRides,
     ModeKey,
-    REFERENCE_CLIMB_M_PER_KM,
-    REFERENCE_SPEED_KMH,
-    REFERENCE_SURFACE,
     SURFACE_FACTORS,
     clamp,
     estimateRouteEnergy,
     modeMixFor,
+    motorShareMeasured,
     normaliseDistribution,
     packEfficiencyOf,
     reservePercentOf,
@@ -159,17 +157,27 @@ function ratioOfLevel(level: number): number {
     return found ? found.ratio : 0;
 }
 
+/** Representative support of a mode: the middle of its range (its level when fixed). */
+function ratioOfRange(minLevel: number, maxLevel: number): number {
+    return (ratioOfLevel(minLevel) + ratioOfLevel(maxLevel)) / 2;
+}
+
 /* ------------------- STOCK DJI MODES (reference) -------------------- */
 /* Defaults shipped by the DJI app (screenshot-verified). Used only for */
 /* the runtime comparison chart: same rider model, stock level/power.   */
 /* For range modes the CEILING level is used, matching how this app     */
 /* models its own ranges.                                               */
 
-const STOCK_MODES: Array<{ key: string; label: string; level: number; maxPower: number; maxTorque: number }> = [
-    { key: 'eco', label: 'ECO', level: 4, maxPower: 200, maxTorque: 50 },
-    { key: 'auto', label: 'AUTO', level: 11, maxPower: 1300, maxTorque: 130 },
-    { key: 'trail', label: 'TRAIL', level: 11, maxPower: 1300, maxTorque: 130 },
-    { key: 'turbo', label: 'TURBO', level: 13, maxPower: 1300, maxTorque: 130 }
+/* The app shows only the ceiling of the stock range modes: their floor here
+   is this project's band floor (AUTO 3, TRAIL 6). A range mode is modelled
+   at the middle of its range, not at its ceiling: on a recorded ride AUTO
+   ran between 2.3x and 3.6x, around the 3.1x middle of levels 3-11, while
+   the ceiling (5.15x) made AUTO, TRAIL and TURBO saturate to one value. */
+const STOCK_MODES: Array<{ key: string; label: string; minLevel: number; level: number; maxPower: number; maxTorque: number }> = [
+    { key: 'eco', label: 'ECO', minLevel: 4, level: 4, maxPower: 200, maxTorque: 50 },
+    { key: 'auto', label: 'AUTO', minLevel: 3, level: 11, maxPower: 1300, maxTorque: 130 },
+    { key: 'trail', label: 'TRAIL', minLevel: 6, level: 11, maxPower: 1300, maxTorque: 130 },
+    { key: 'turbo', label: 'TURBO', minLevel: 13, level: 13, maxPower: 1300, maxTorque: 130 }
 ];
 
 /** Human-readable % of rider input for a level, e.g. "360%". */
@@ -333,7 +341,7 @@ function buildMode(
     // physical torque ceiling at the chosen cadence (P = T x rpm / 9.55).
     // It sets the mode's motor share, which splits the work in the range model.
     const torqueCeiling = (bike.maxTorque * rpm) / 9.55;
-    const levelDraw = ratioOfLevel(assistMax) * pRider;
+    const levelDraw = ratioOfRange(assistMin, assistMax) * pRider;
     const typicalPower = Math.round(Math.min(maxPower, torqueCeiling, levelDraw));
 
     return {
@@ -489,13 +497,13 @@ app.post('/api/calculate', (req: Request, res: Response) => {
     // Stock DJI modes (reference): expected draw with the same rider model,
     // using each stock mode's level, power cap and torque cap.
     const stockTypical = Object.fromEntries(STOCK_MODES.map((s) => [s.key, Math.round(Math.min(
-        ratioOfLevel(s.level) * pRider,
+        ratioOfRange(s.minLevel, s.level) * pRider,
         s.maxPower,
         (s.maxTorque * rpm) / 9.55
     ))])) as Record<ModeKey, number>;
 
-    // Range and runtime: the route model on its reference terrain, scaled by
-    // the measured consumption when the client sends one.
+    // Range and runtime: the route model on its reference ground, or on the
+    // ground of the calibration rides when the client sends one.
     const ranges = tunerRanges({
         totalWeight,
         batteryWh,
@@ -539,9 +547,10 @@ app.post('/api/calculate', (req: Request, res: Response) => {
         ...modes,
         stock,
         rangeModel: {
-            referenceClimbMPerKm: REFERENCE_CLIMB_M_PER_KM,
-            referenceSurface: REFERENCE_SURFACE,
-            referenceSpeedKmH: REFERENCE_SPEED_KMH,
+            basis: ranges.ground.basis,
+            climbMPerKm: Math.round(ranges.ground.climbMPerKm),
+            surface: ranges.ground.surfaceId,
+            anchor: ranges.anchor,
             referenceWhPerKm: Math.round(ranges.referenceWhPerKm * 10) / 10
         },
         basedOnRealRides,
@@ -572,7 +581,8 @@ function readMeasuredRides(body: Record<string, unknown>): MeasuredRides | null 
         hm: hm > 0 ? hm : 0,
         efficiency: packEfficiencyOf(body.realEfficiency),
         surfaceId: surfaceIdOf(body.realSurface),
-        steepShare: steepPercent > 0 ? clamp(steepPercent / 100, 0, 1) : 0
+        steepShare: steepPercent > 0 ? clamp(steepPercent / 100, 0, 1) : 0,
+        motorShare: motorShareMeasured(body.realMotorShare)
     };
 }
 

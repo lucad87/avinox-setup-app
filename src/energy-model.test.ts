@@ -13,6 +13,7 @@ import {
     personalFactorOf,
     reservePercentOf,
     surfaceIdOf,
+    climbSpeedKmH,
     terrainEnergy,
     tunerRanges
 } from './energy-model';
@@ -27,6 +28,7 @@ function ride(overrides: Partial<MeasuredRides> = {}): MeasuredRides {
         efficiency: 0.8,
         surfaceId: 'mixed',
         steepShare: 0.1,
+        motorShare: null,
         ...overrides
     };
 }
@@ -165,14 +167,43 @@ test('changing one mode leaves the others alone', () => {
     for (const k of ['eco', 'auto', 'turbo'] as ModeKey[]) assert.deepEqual(after.modes[k], before.modes[k]);
 });
 
-test('a calibration scales every Tuner range by the personal factor', () => {
-    const generic = tuner();
+test('a calibration without a motor share scales the stock anchor on the rides\' ground', () => {
     const calibrated = tuner({ real: ride() });
     assert.equal(calibrated.personal.applied, true);
+    assert.equal(calibrated.ground.basis, 'rides');
+    assert.equal(calibrated.ground.climbMPerKm, 25);   // 1000 m over 40 km
+    assert.equal(calibrated.anchor, 'stock');
+    // The reference consumption is the measured one, in pack energy.
+    assert.ok(Math.abs(calibrated.referenceWhPerKm - 9 / 0.8) < 1e-9);
+});
+
+test('a calibration with a motor share anchors every mode on the rides', () => {
+    const t = tuner({ real: ride({ motorShare: 0.65 }) });
+    assert.equal(t.anchor, 'rides');
     for (const k of MODE_KEYS) {
-        const ratio = generic.modes[k].range / calibrated.modes[k].range;
-        assert.ok(Math.abs(ratio - calibrated.personal.factor) < 0.02, `${k}: ${ratio}`);
+        const share = CUSTOM_W[k] / (CUSTOM_W[k] + 150);
+        assert.ok(Math.abs(t.modes[k].whPerKm - Math.round((9 / 0.8) * share / 0.65 * 10) / 10) < 1e-9, k);
     }
+});
+
+test('an implausible calibration leaves the Tuner on the reference ground', () => {
+    const t = tuner({ real: ride({ motorWhPerKm: 1.5, motorShare: 0.65 }) });
+    assert.equal(t.ground.basis, 'reference');
+    assert.equal(t.anchor, 'stock');
+});
+
+test('the climbing speed reproduces the two recorded rides', () => {
+    // 105 kg, 121 W average pedalling: ECO at 1.2x climbed at 8.5 km/h, AUTO at 3x at 10.3.
+    assert.ok(Math.abs(climbSpeedKmH(121, 1.2 * 121, 105) - 8.5) < 0.3);
+    assert.ok(Math.abs(climbSpeedKmH(121, 3.03 * 121, 105) - 10.3) < 0.3);
+});
+
+test('a stronger mode empties the battery in fewer hours than kilometres alone suggest', () => {
+    const t = tuner({ real: ride({ motorShare: 0.65 }) });
+    assert.ok(t.modes.turbo.speedKmH > t.modes.eco.speedKmH);
+    const hours = t.modes.eco.runtime / t.modes.turbo.runtime;
+    const km = t.modes.eco.range / t.modes.turbo.range;
+    assert.ok(hours > km, `hours x${hours.toFixed(2)} vs km x${km.toFixed(2)}`);
 });
 
 test('the mode mix covers the whole distance on any terrain', () => {
