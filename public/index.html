@@ -242,7 +242,7 @@
             </main>
         </div>
 
-        <!-- ============================== Route Simulator ============================== -->
+        <!-- ============================== Route ============================== -->
         <div id="tabRoute" class="hidden">
             <main class="workspace">
                 <div class="workspace-body rides-flow">
@@ -721,8 +721,12 @@
                                     <p>Drop a GPX/KML route or a <code class="code-inline">.proto</code> recording — or type a distance and elevation gain by hand; with a file the fields are filled from it and stay editable. Surface type and the reserve you want left at the finish complete the picture.</p>
                                 </div>
                                 <div class="kb-tile">
+                                    <h4>Where the numbers come from</h4>
+                                    <p>The analysis uses the <strong>bike, battery, rider and bike weight, cadence and rider power</strong> set in the Tuner — change any of them there and the analysis refreshes by itself. The per-mode <strong>W/kg targets are not used here</strong>: the route proposes its own modes, while your base ECO/AUTO/TRAIL/TURBO setup stays in the Tuner.</p>
+                                </div>
+                                <div class="kb-tile">
                                     <h4>Output</h4>
-                                    <p>The energy verdict (feasible or critical), the consumption breakdown, the usable battery after the reserve and, with a file or a recording, the grade bars, the detected climbs and an elevation profile.</p>
+                                    <p>The energy verdict (feasible or critical), the consumption breakdown and the usable battery after the reserve — plus, with a <strong>route file</strong>, the grade bars, the detected climbs, the elevation profile and the route on a map coloured by gradient. A <strong>recording</strong> brings its own map and sensor graphs instead (the graph stack already shows elevation and gradient).</p>
                                 </div>
                                 <div class="kb-tile">
                                     <h4>Proposed route modes</h4>
@@ -730,7 +734,7 @@
                                 </div>
                                 <div class="kb-tile">
                                     <h4>Your consumption, not a generic one</h4>
-                                    <p>With rides loaded, the energy estimate is scaled by a personal factor: the app compares your measured Wh/km with what the model would have predicted for the same rides (shown as “scaled by your real rides ×0.86”). Without rides, the generic coefficients are used.</p>
+                                    <p>When a measurement is available the estimate is scaled by a personal factor, and the badge says where it came from (“×0.97 this ride”, “×0.85 calibration”). For a recording the headline is the energy that ride <strong>actually used</strong>, with the model projection underneath as the comparison. A measurement outside the plausible range (a factor far from 1, or under 2.5 Wh/km) is <strong>not applied</strong>: the figures come from the generic model and the card says so.</p>
                                 </div>
                             </div>
                             <p class="hint">
