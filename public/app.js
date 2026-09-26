@@ -45,6 +45,73 @@ function calibrationIsImplausible(cal) {
     return Number.isFinite(cal.whPerKm) && cal.whPerKm < PLAUSIBLE_WH_PER_KM_MIN;
 }
 
+/* Above this a recording is not a measurement of assisted riding either. */
+const PLAUSIBLE_WH_PER_KM_MAX = 50;
+/* Which rides were left out of the calibration, and why (survives a refresh). */
+const CAL_NOTES_KEY = 'avinox-calibration-notes';
+
+function storeCalibrationNotes(notes) {
+    try { localStorage.setItem(CAL_NOTES_KEY, JSON.stringify(notes)); } catch (e) { /* ignore */ }
+}
+
+function getCalibrationNotes() {
+    try {
+        const n = JSON.parse(localStorage.getItem(CAL_NOTES_KEY) || 'null');
+        return (n && n.total) ? n : null;
+    } catch (e) { return null; }
+}
+
+/**
+ * Physical measurement of a single ride: the motor energy spent in the assist
+ * MODES, over the whole distance ridden — the same measure the calibration
+ * builds for the loaded set, so a single ride can be judged against the same
+ * window. A ride where the motor barely ran (a "muscle" ride) measures almost
+ * nothing, and averaging it in would inflate every range the app predicts.
+ */
+function rideMotorWhPerKm(ride) {
+    const samples = (ride.samples || []).filter((s) => s && s.timestamp && s.assist >= 1 && s.assist <= 15);
+    if (samples.length < 10) return null;
+    let wh = 0, prevTs = null;
+    for (let i = 0; i < samples.length; i++) {
+        const s = samples[i];
+        /* Same interval rule as the calibration itself. */
+        const dt = prevTs !== null && s.timestamp > prevTs ? Math.min(s.timestamp - prevTs, 10) : 1;
+        prevTs = s.timestamp;
+        wh += (s.motorPower || 0) * dt / 3600;
+    }
+    const last = (ride.samples || [])[ride.samples.length - 1] || {};
+    const km = last.distanceKm || 0;
+    if (!(km > 0.5)) return null;
+    return { whPerKm: wh / km, motorWh: wh, km };
+}
+
+/** Why a ride cannot feed the calibration, or null when it can. */
+function rideMeasurementProblem(ride) {
+    const m = rideMotorWhPerKm(ride);
+    if (!m) return { reason: 'no usable distance', whPerKm: null };
+    if (m.whPerKm < PLAUSIBLE_WH_PER_KM_MIN) {
+        return { reason: 'the motor barely ran', whPerKm: Math.round(m.whPerKm * 10) / 10 };
+    }
+    if (m.whPerKm > PLAUSIBLE_WH_PER_KM_MAX) {
+        return { reason: 'reading out of range', whPerKm: Math.round(m.whPerKm * 10) / 10 };
+    }
+    return null;
+}
+
+/** The line the calibration card adds when rides were left out. */
+function calibrationExclusionHtml() {
+    const notes = getCalibrationNotes();
+    if (!notes || !notes.excluded || !notes.excluded.length) return '';
+    const list = notes.excluded.map((x) =>
+        (x.whPerKm != null ? x.whPerKm + ' Wh/km' : 'no distance') + ' — ' + x.reason).join('; ');
+    return notes.used
+        ? '<strong>' + notes.excluded.length + ' of ' + notes.total + ' rides</strong> stay out of this calibration ('
+            + list + '): a ride the motor barely ran on measures almost nothing, and letting it in would inflate every '
+            + 'range. The other ' + notes.used + ' set it.'
+        : '<strong>No loaded ride carries a usable measurement</strong> (' + list
+            + '), so the estimates come from the generic model.';
+}
+
 /* ---- Loaded files on this device (IndexedDB) ---------------------------- */
 /* The calibration is a measurement and survives a refresh; the files it was
    measured FROM used to vanish with it, which made the two look
@@ -338,6 +405,13 @@ function renderCalibrationState() {
                 anomaly.classList.add('hidden');
                 anomaly.innerHTML = '';
             }
+            /* Rides left out of the calibration are named too: the number must
+               never be silently built on a subset of what is loaded. */
+            const extra = calibrationExclusionHtml();
+            if (extra) {
+                anomaly.classList.remove('hidden');
+                anomaly.innerHTML = (anomaly.innerHTML ? anomaly.innerHTML + ' ' : '') + extra;
+            }
         }
 
         if (tunerState) {
@@ -403,6 +477,14 @@ function renderCalibrationState() {
         if (summary) summary.classList.add('hidden');
         if (emptyMsg) emptyMsg.classList.remove('hidden');
         if (note) note.classList.add('hidden');
+        /* No calibration, but rides may have been left out: say it here too,
+           or the only feedback would be the missing numbers. */
+        const anomalyEmpty = document.getElementById('calibrationAnomaly');
+        const extraEmpty = calibrationExclusionHtml();
+        if (anomalyEmpty) {
+            anomalyEmpty.classList.toggle('hidden', !extraEmpty);
+            anomalyEmpty.innerHTML = extraEmpty;
+        }
     }
 }
 
@@ -1759,43 +1841,65 @@ async function handleProtoFiles(files, opts) {
         }
 
         const allSamples = loadedRides.flatMap((r) => r.samples);
+
+        /* Only rides carrying a usable measurement feed the calibration: a ride
+           where the motor barely ran would drag the average down and inflate
+           every range. Those rides stay loaded and visible — they are named in
+           the card instead of being quietly averaged in. */
+        const usedRides = [], excluded = [];
+        loadedRides.forEach((r) => {
+            const problem = rideMeasurementProblem(r);
+            if (problem) excluded.push(Object.assign({ label: r.label }, problem));
+            else usedRides.push(r);
+        });
+        storeCalibrationNotes({ used: usedRides.length, total: loadedRides.length, excluded });
+
+        /* The ride view still needs an analysis even when nothing is usable. */
+        const analysisSamples = usedRides.length ? usedRides.flatMap((r) => r.samples) : allSamples;
         const earliest = loadedRides.reduce((m, r) => Math.min(m, r.metadata.start), Infinity);
         const merged = {
             metadata: {
                 fileName: loadedRides.length + ' ride file(s)',
                 start: earliest,
                 duration: loadedRides.reduce((m, r) => m + r.metadata.duration, 0),
-                samples: allSamples.length
+                samples: analysisSamples.length
             },
-            samples: allSamples
+            samples: analysisSamples
         };
 
             const analysis = analyzeRideForCalibration(merged);
             lastRideAnalysis = analysis;
             /* Totals behind the factor: kept with it so a route analysis can
                still be personalised after the ride library is cleared. */
-            const calKm = loadedRides.reduce((a, r) => a + (((r.samples.at(-1) || {}).distanceKm) || 0), 0);
-            const calHm = loadedRides.reduce((a, r) => a + (r.metadata.ascent || 0), 0);
-            const cal = {
-                factor: analysis.summary.factor,
-                actualWh: analysis.summary.actualWh,
-                modelWh: analysis.summary.modelWh,
-                whPerKm: analysis.summary.whPerKm,
-                avgLevel: analysis.summary.avgLevel,
-                /* Distance ridden per mode: the weight the measured consumption
-                   belongs to, so every mode can be projected from it. */
-                modeKm: analysis.summary.modeKm,
-                modeWh: analysis.summary.modeWh,
-                realKm: Math.round(calKm * 10) / 10,
-                realHm: Math.round(calHm),
-                rideLabel: loadedRides.length + ' ride(s) · ' + analysis.summary.distanceKm + ' km'
-            };
-            setCalibration(cal);
+            const calKm = usedRides.reduce((a, r) => a + (((r.samples.at(-1) || {}).distanceKm) || 0), 0);
+            const calHm = usedRides.reduce((a, r) => a + (r.metadata.ascent || 0), 0);
+            if (usedRides.length) {
+                const cal = {
+                    factor: analysis.summary.factor,
+                    actualWh: analysis.summary.actualWh,
+                    modelWh: analysis.summary.modelWh,
+                    whPerKm: analysis.summary.whPerKm,
+                    avgLevel: analysis.summary.avgLevel,
+                    /* Distance ridden per mode: the weight the measured consumption
+                       belongs to, so every mode can be projected from it. */
+                    modeKm: analysis.summary.modeKm,
+                    modeWh: analysis.summary.modeWh,
+                    realKm: Math.round(calKm * 10) / 10,
+                    realHm: Math.round(calHm),
+                    rideLabel: (excluded.length
+                        ? usedRides.length + ' of ' + loadedRides.length + ' rides'
+                        : usedRides.length + ' ride(s)') + ' · ' + analysis.summary.distanceKm + ' km'
+                };
+                setCalibration(cal);
+            } else {
+                setCalibration(null);
+            }
             /* A route file and recordings are two different things: loading
                rides drops the loaded GPX/KML and its track. */
             clearRouteFile();
             if (!restore) {
                 setFileStatus('Loaded ' + loadedRides.length + ' ride(s), ' + allSamples.length + ' samples.'
+                    + (excluded.length ? ' (' + excluded.length + ' left out of the calibration: no usable measurement)' : '')
                     + (skipped.length ? ' (' + skipped.length + ' already loaded, skipped)' : ''), 'ok');
             }
             renderCalibrationReport(analysis);
@@ -3369,7 +3473,7 @@ function resetApp() {
     if (!window.confirm('Clear all data? This removes the loaded routes and rides, the calibration, the route analysis and any saved settings.')) return;
 
     try {
-        ['avinox-form', 'avinox-calibration', 'avinox-graph-order', 'avinox-pinned-graphs']
+        ['avinox-form', 'avinox-calibration', 'avinox-calibration-notes', 'avinox-graph-order', 'avinox-pinned-graphs']
             .forEach((k) => localStorage.removeItem(k));
     } catch (e) { /* ignore */ }
     idbClearAll();
