@@ -68,6 +68,7 @@ La guida integra è nel **?** in alto a destra (Knowledge Base).
 | `npm start` | Avvia in sviluppo con ts-node |
 | `npm run build` | Compila TypeScript in `dist/` |
 | `npm run serve` | Avvia la versione compilata |
+| `npm test` | Test del modello energetico, delle API e dell'energia dei giri |
 
 ## Docker
 
@@ -155,6 +156,7 @@ The built-in guide is behind the **?** in the header (Knowledge Base).
 | `npm start` | Run in development mode with ts-node |
 | `npm run build` | Compile TypeScript to `dist/` |
 | `npm run serve` | Run the compiled production version |
+| `npm test` | Tests for the energy model, the API and the ride energy |
 
 ## Docker
 

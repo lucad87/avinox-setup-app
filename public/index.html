@@ -19,6 +19,7 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css">
     <script src="/route-file.js"></script>
     <script src="/avinox-proto-parser.js"></script>
+    <script src="/ride-energy.js"></script>
     <link rel="stylesheet" href="/styles.css">
     <script>
         /* Apply the saved (or system) theme before first paint to avoid a flash. */
@@ -700,7 +701,7 @@
 
                             <h4>From data to estimates</h4>
                             <p>
-                                The app measures the <strong>motor energy actually used per kilometre</strong> (Wh/km) over the rides loaded. Because each file restarts its distance counter at zero, the distances of all loaded rides are added up — so more rides give a steadier figure.
+                                The app measures the <strong>motor energy actually used per kilometre</strong> (Wh/km) over the rides loaded. Because each file restarts its distance counter at zero, the distances of all loaded rides are added up — so more rides give a steadier figure. The motor energy is what the motor delivered, not what left the battery: the app converts it with the <strong>drive efficiency measured on the battery drop</strong> of the rides (motor Wh over the Wh the drop represents on the pack selected in the Tuner). When the drop is under 15% or the result is not plausible — a range extender, or another pack than the one selected — it uses 80% and says so.
                                 The Tuner then projects each mode from that real consumption, and it does so with the <strong>mix of modes you actually rode</strong>: the distance covered in each mode is the weight, and a mode is scaled by its own support relative to that mix. The projection therefore reproduces your measured consumption for the riding you did, and extrapolates to the modes you did not use. A recording does not carry the assist level you had set, so no level is involved. Loading a recording also puts it straight into the route analysis: pick it in step 1 and it becomes the analyzed route.
                             </p>
                             <p class="hint">
@@ -736,7 +737,7 @@
                                 </div>
                                 <div class="kb-tile">
                                     <h4>Your consumption, not a generic one</h4>
-                                    <p>When a measurement is available the estimate is scaled by a personal factor, and the badge says where it came from (“×0.97 this ride”, “×0.85 calibration”). For a recording the headline is the energy that ride <strong>actually used</strong>, with the model projection underneath as the comparison. A measurement outside the plausible range (a factor far from 1, or under 2.5 Wh/km) is <strong>not applied</strong>: the figures come from the generic model and the card says so.</p>
+                                    <p>When a measurement is available the estimate is scaled by a personal factor, and the badge says where it came from (“×0.97 this ride”, “×0.85 calibration”). The factor compares the battery energy of your rides with what the model predicts for <strong>the same rides under the same assumptions</strong> — surface and steepness included — so the surface you pick is applied once, not on top of a measurement that already contains it. For a recording the headline is the energy that ride <strong>actually used</strong>, with the model projection underneath as the comparison. A measurement outside the plausible range (a factor far from 1, or under 2.5 Wh/km) is <strong>not applied</strong>: the figures come from the generic model and the card says so.</p>
                                 </div>
                             </div>
                             <p class="hint">

@@ -1,7 +1,20 @@
 import express, { Request, Response } from 'express';
 import path from 'path';
+import {
+    MeasuredRides,
+    PACK_EFFICIENCY_DEFAULT,
+    SURFACE_FACTORS,
+    clamp,
+    estimateRouteEnergy,
+    implausibleReason,
+    normaliseDistribution,
+    packEfficiencyOf,
+    reservePercentOf,
+    steepShareOf,
+    surfaceIdOf
+} from './energy-model';
 
-const app = express();
+export const app = express();
 const port = 3080;
 
 app.use(express.json());
@@ -72,45 +85,6 @@ const BOOST_DURATION_MAX = 60;
 /* value, while a finer grid (10 Nm / 100 W) would not.                 */
 const TORQUE_STEP_NM = 5;
 const POWER_STEP_W = 50;
-
-/* ------------------- ROUTE ENERGY MODEL (Phase 2) ------------------ */
-/* The flat/climb baseline is unchanged so figures stay comparable with    */
-/* earlier estimates. On top of it the route analysis applies two          */
-/* documented corrections, and reports an interval instead of a single     */
-/* number, because wind, temperature, tyres and riding style are unknown.  */
-
-const SURFACE_FACTORS: Record<string, number> = {
-    road: 1.00,
-    gravel: 1.12,
-    mixed: 1.22,
-    technical: 1.35
-};
-
-// Steep ground is less efficient: more torque, lower cadence, more heat.
-const STEEP_ENERGY_PENALTY = 0.35;
-
-const QUALITY_MARGIN: Record<string, number> = {
-    good: 0.12,
-    noisy: 0.22,
-    unavailable: 0.30
-};
-
-const GRADE_KEYS = ['descent', 'flat', 'rolling', 'climb', 'steep', 'extreme'];
-
-/** Keeps only the known grade bands; returns null when nothing usable. */
-function normaliseDistribution(value: unknown): Record<string, number> | null {
-    if (!value || typeof value !== 'object') return null;
-    const source = value as Record<string, unknown>;
-    const out: Record<string, number> = {};
-    let any = false;
-
-    for (const key of GRADE_KEYS) {
-        const n = parseFloat(String(source[key]));
-        out[key] = Number.isFinite(n) && n >= 0 ? n : 0;
-        if (out[key] > 0) any = true;
-    }
-    return any ? out : null;
-}
 
 /* ------------------------ 2. ASSIST LEVELS ------------------------- */
 /* Motor-to-rider support ratios per level, as % of rider input.        */
@@ -237,11 +211,6 @@ const MODES: ModeBlueprint[] = [
 
 /* ---------------------------- UTILITIES ---------------------------- */
 
-function clamp(value: number, min: number, max: number): number {
-    if (min > max) return max;
-    return Math.min(Math.max(value, min), max);
-}
-
 /**
  * Snaps a value to the step grid the Avinox app accepts, keeping it inside
  * [min, max]. Both bounds must themselves sit on the grid.
@@ -283,29 +252,6 @@ function calculateMetrics(watts: number, speedKmH: number, batteryWh: number) {
       mode Wh/km = pack Wh/km x ratio(modeLevel) / ratio(referenceLevel)
    extrapolated per level with the amplification table.                 */
 
-const PACK_EFFICIENCY = 0.8; // motor energy vs energy taken from the pack
-
-/* A personal factor only makes sense inside a sane window. Outside it the
-   model and the bike disagree by ~5x or more, which is a measurement artefact
-   (the motor was off for most of the ride, or the file's power field reads
-   differently) rather than a riding style - one real file measured 1.7 Wh/km
-   against a model prediction of 13, i.e. a factor of 0.13, which collapsed
-   every estimate to a fifth of its baseline. The window is wide against real
-   data: seven real rides gave factors from 0.64 to 1.04. When a measurement
-   is rejected it is NOT applied silently - the response says so and the UI
-   tells the user. */
-const PLAUSIBLE_FACTOR_MIN = 0.5;
-const PLAUSIBLE_FACTOR_MAX = 1.5;
-const PLAUSIBLE_WH_PER_KM_MIN = 2.5;
-
-function implausibleReason(whPerKm: number, factor: number | null): string | null {
-    if (!(whPerKm >= PLAUSIBLE_WH_PER_KM_MIN)) return 'consumption-too-low';
-    if (factor != null && (factor < PLAUSIBLE_FACTOR_MIN || factor > PLAUSIBLE_FACTOR_MAX)) {
-        return 'factor-out-of-range';
-    }
-    return null;
-}
-
 /**
  * Projects the measured motor consumption onto a single mode.
  *
@@ -324,7 +270,7 @@ function realMetrics(
     speedKmH: number
 ): { runtime: number; range: number } | null {
     if (!(modeMotorW > 0) || !(mixMotorW > 0)) return null;
-    const packWhPerKm = (realMotorWhPerKm / PACK_EFFICIENCY) * (modeMotorW / mixMotorW);
+    const packWhPerKm = (realMotorWhPerKm / PACK_EFFICIENCY_DEFAULT) * (modeMotorW / mixMotorW);
     if (!Number.isFinite(packWhPerKm) || packWhPerKm <= 0) return null;
     return {
         runtime: parseFloat((batteryWh / (packWhPerKm * speedKmH)).toFixed(1)),
@@ -664,6 +610,47 @@ app.post('/api/calculate', (req: Request, res: Response) => {
  * ROUTE PLANNER — energy feasibility and mode distribution
  * ------------------------------------------------------------------ */
 
+/* The measured rides the client sends with a route: the motor consumption,
+   the rides it was measured on (distance, gain, steep share, surface) and the
+   pack efficiency measured on their battery drop. A calibration stored before
+   surface and efficiency existed falls back to the defaults. */
+function readMeasuredRides(body: Record<string, unknown>): MeasuredRides | null {
+    const motorWhPerKm = parseFloat(String(body.realWhPerKm));
+    const km = parseFloat(String(body.realKm));
+    if (!(motorWhPerKm > 0) || !(km > 1)) return null;
+    const hm = parseFloat(String(body.realHm));
+    const steepPercent = parseFloat(String(body.realSteepShare));
+    return {
+        motorWhPerKm,
+        km,
+        hm: hm > 0 ? hm : 0,
+        efficiency: packEfficiencyOf(body.realEfficiency),
+        surfaceId: surfaceIdOf(body.realSurface),
+        steepShare: steepPercent > 0 ? clamp(steepPercent / 100, 0, 1) : 0
+    };
+}
+
+/* Both route endpoints read the route through here, so the feasibility
+   verdict and the proposed modes always come from the same estimate. */
+function readRouteEnergy(body: Record<string, unknown>, km: number, hm: number, totalWeight: number, batteryWh: number) {
+    const gradeDistribution = normaliseDistribution(body.gradeDistribution);
+    const surfaceId = surfaceIdOf(body.surface);
+    const reservePercent = reservePercentOf(body.reservePercent);
+    const real = readMeasuredRides(body);
+    const energy = estimateRouteEnergy({
+        km,
+        hm,
+        totalWeight,
+        surfaceId,
+        steepShare: steepShareOf(gradeDistribution),
+        batteryWh,
+        reservePercent,
+        elevationQuality: body.elevationQuality == null ? null : String(body.elevationQuality),
+        real
+    });
+    return { gradeDistribution, surfaceId, reservePercent, real, energy };
+}
+
 app.post('/api/calculate-mission', (req: Request, res: Response) => {
     const body = req.body ?? {};
 
@@ -674,9 +661,11 @@ app.post('/api/calculate-mission', (req: Request, res: Response) => {
     const km = parseFloat(body.targetKm);
     const hm = parseFloat(body.targetH_m);
 
-    if (![riderWeight, bikeWeight, rpm, pRider, km, hm].every((n) => Number.isFinite(n) && n > 0)) {
+    if (![riderWeight, bikeWeight, rpm, pRider, km].every((n) => Number.isFinite(n) && n > 0)
+        || !(Number.isFinite(hm) && hm >= 0)) {
         return res.status(400).json({
-            error: 'Invalid parameters: weights, cadence, rider power, distance and elevation must be positive numbers.'
+            error: 'Invalid parameters: weights, cadence, rider power and distance must be positive numbers, '
+                + 'elevation gain zero or more.'
         });
     }
 
@@ -684,65 +673,9 @@ app.post('/api/calculate-mission', (req: Request, res: Response) => {
     const batteryWh = pickNumber(body.batteryWh, 800);
     const totalWeight = riderWeight + bikeWeight;
 
-    // --- Route-aware energy model ------------------------------------
-    const surfaceId = SURFACE_FACTORS[String(body.surface)] ? String(body.surface) : 'mixed';
-    const surfaceFactor = SURFACE_FACTORS[surfaceId];
-
-    const reservePercent = clamp(pickNumber(body.reservePercent, 15), 0, 50);
-    const reserveWh = (batteryWh * reservePercent) / 100;
-    const usableWh = batteryWh - reserveWh;
-
-    const gradeDistribution = normaliseDistribution(body.gradeDistribution);
-    const steepShare = gradeDistribution
-        ? (gradeDistribution.steep + gradeDistribution.extreme) / 100
-        : 0;
-    const steepnessFactor = 1 + STEEP_ENERGY_PENALTY * steepShare;
-
-    const energyFlat = km * 3.8;
-    const energyClimb = hm * 0.24 * (totalWeight / 100);
-    const baseEnergy = energyFlat + energyClimb;
-
-    /* Real-ride personal factor: the client sends the measured motor
-       consumption (Wh/km) and the distance/elevation of the rides it was
-       measured on. Comparing that with what this model would predict for
-       the same rides gives a personal factor applied to the estimate. */
-    const realWhPerKm = parseFloat(String(body.realWhPerKm));
-    const realKm = parseFloat(String(body.realKm));
-    const realHm = parseFloat(String(body.realHm));
-    let personalFactor = 1;
-    let factorRaw: number | null = null;
-    let factorRejected: string | null = null;
-    const hasReal = Number.isFinite(realWhPerKm) && realWhPerKm > 0
-        && Number.isFinite(realKm) && realKm > 1;
-    if (hasReal) {
-        const modelWhForRides = realKm * 3.8 + (Number.isFinite(realHm) ? realHm : 0) * 0.24 * (totalWeight / 100);
-        const modelWhPerKm = modelWhForRides / realKm;
-        if (modelWhPerKm > 0.5) {
-            factorRaw = realWhPerKm / modelWhPerKm;
-            factorRejected = implausibleReason(realWhPerKm, factorRaw);
-            /* Rejected: the estimate falls back to the model, and the client
-               is told why instead of silently scaling by an absurd number. */
-            if (!factorRejected) personalFactor = factorRaw;
-        }
-    }
-    const useReal = hasReal && !factorRejected;
-
-    const energyEstimated = baseEnergy * surfaceFactor * steepnessFactor * personalFactor;
-    const qualityId = String(body.elevationQuality);
-    const margin = QUALITY_MARGIN[qualityId] ?? QUALITY_MARGIN.noisy;
-    const energyLow = energyEstimated * (1 - margin);
-    const energyHigh = energyEstimated * (1 + margin);
-    const confidence = qualityId === 'good' ? 'medium' : 'low';
-
-    const totalEnergyRequired = Math.round(energyEstimated);
-
-    let scalingFactor = 1.0;
-    let feasible = true;
-
-    if (totalEnergyRequired > usableWh) {
-        scalingFactor = usableWh / totalEnergyRequired;
-        feasible = false;
-    }
+    const { gradeDistribution, surfaceId, reservePercent, real, energy } =
+        readRouteEnergy(body, km, hm, totalWeight, batteryWh);
+    const { flat: energyFlat, climb: energyClimb, feasible, scalingFactor } = energy;
 
     // Altitude share and profile usage planning (pie chart logic)
     const climbRatio = energyClimb / (energyFlat + energyClimb || 1);
@@ -812,31 +745,34 @@ app.post('/api/calculate-mission', (req: Request, res: Response) => {
 
     return res.json({
         feasible,
-        energyRequired: totalEnergyRequired,
+        energyRequired: energy.required,
         scalingFactor,
         distribution,
         bike,
         energy: {
-            base: Math.round(baseEnergy),
-            estimated: Math.round(energyEstimated),
-            low: Math.round(energyLow),
-            high: Math.round(energyHigh),
-            marginPercent: Math.round(margin * 100),
+            base: Math.round(energy.base),
+            estimated: Math.round(energy.estimated),
+            low: Math.round(energy.low),
+            high: Math.round(energy.high),
+            marginPercent: Math.round(energy.margin * 100),
             flat: Math.round(energyFlat),
             climb: Math.round(energyClimb)
         },
-        surface: { id: surfaceId, factor: surfaceFactor },
-        steepnessFactor,
-        personalFactor: Math.round(personalFactor * 100) / 100,
-        basedOnRealRides: useReal,
+        surface: { id: surfaceId, factor: energy.surfaceFactor },
+        steepnessFactor: energy.steepnessFactor,
+        personalFactor: Math.round(energy.personal.factor * 100) / 100,
+        basedOnRealRides: energy.personal.applied,
         /* The raw measurement and, when it was refused, the reason - the UI
            shows both rather than scaling in silence. */
-        realWhPerKm: Number.isFinite(realWhPerKm) ? realWhPerKm : null,
-        factorRaw: factorRaw == null ? null : Math.round(factorRaw * 100) / 100,
-        factorRejected,
-        reserve: { percent: reservePercent, wh: Math.round(reserveWh) },
-        usableWh: Math.round(usableWh),
-        confidence,
+        realWhPerKm: real ? real.motorWhPerKm : null,
+        packEfficiency: real ? real.efficiency : null,
+        realPackWhPerKm: energy.personal.packWhPerKm == null
+            ? null : Math.round(energy.personal.packWhPerKm * 10) / 10,
+        factorRaw: energy.personal.raw == null ? null : Math.round(energy.personal.raw * 100) / 100,
+        factorRejected: energy.personal.rejected,
+        reserve: { percent: reservePercent, wh: Math.round(energy.reserveWh) },
+        usableWh: Math.round(energy.usableWh),
+        confidence: energy.confidence,
         gradeDistribution,
         climbSummary: body.climbSummary ?? null,
         eco: {
@@ -907,13 +843,9 @@ app.post('/api/route-modes', (req: Request, res: Response) => {
     const bike = pickBike(body.bike);
     const totalWeight = riderWeight + bikeWeight;
     const batteryWh = pickNumber(body.batteryWh, 800);
-    const reservePercent = clamp(pickNumber(body.reservePercent, 15), 0, 50);
-    const usableWh = batteryWh * (1 - reservePercent / 100);
-
     const km = pickNumber(body.targetKm, 0);
     const hm = pickNumber(body.targetH_m, 0);
-    const surfaceId = SURFACE_FACTORS[String(body.surface)] ? String(body.surface) : 'mixed';
-    const gradeDistribution = normaliseDistribution(body.gradeDistribution);
+    const { gradeDistribution, surfaceId, energy } = readRouteEnergy(body, km, hm, totalWeight, batteryWh);
 
     const summary = (body.climbSummary && typeof body.climbSummary === 'object')
         ? body.climbSummary as Record<string, unknown>
@@ -924,11 +856,7 @@ app.post('/api/route-modes', (req: Request, res: Response) => {
         ? gradeDistribution.steep + gradeDistribution.extreme
         : 0;
 
-    // Same model as /api/calculate-mission, so the verdict stays consistent.
-    const energyEstimated = (km * 3.8 + hm * 0.24 * (totalWeight / 100))
-        * SURFACE_FACTORS[surfaceId]
-        * (1 + STEEP_ENERGY_PENALTY * (steepShare / 100));
-    const tightOnBattery = energyEstimated > usableWh;
+    const tightOnBattery = !energy.feasible;
 
     const notes: string[] = [];
 
@@ -1015,8 +943,9 @@ app.post('/api/route-modes', (req: Request, res: Response) => {
     return res.json({
         bike,
         totalWeight,
-        energyEstimated: Math.round(energyEstimated),
-        usableWh: Math.round(usableWh),
+        energyEstimated: Math.round(energy.estimated),
+        usableWh: Math.round(energy.usableWh),
+        basedOnRealRides: energy.personal.applied,
         tightOnBattery,
         steepShare: Math.round(steepShare * 10) / 10,
         climbCount,
@@ -1027,6 +956,8 @@ app.post('/api/route-modes', (req: Request, res: Response) => {
     });
 });
 
-app.listen(port, () => {
-    console.log(`Avinox Mission Router running on port ${port}`);
-});
+if (require.main === module) {
+    app.listen(port, () => {
+        console.log(`Avinox Mission Router running on port ${port}`);
+    });
+}
