@@ -1,6 +1,5 @@
 let rangeChartInstance = null;
 let runtimeChartInstance = null;
-let stockChartInstance = null;
 
 /* ---- Personal calibration (Phase 2A) ----------------------------------- */
 /* A real ride (.proto) is parsed locally and compared against the model:   */
@@ -2169,47 +2168,24 @@ function toggleAdvancedSliders() {
             };
         }
 
-        /* Battery duration comparison: proposed modes vs DJI stock defaults. */
-function initStockChart(stock, ourRuntimes) {
-    if (!stock.length) return;
-    const ctx = document.getElementById('stockChart').getContext('2d');
-    if (stockChartInstance) stockChartInstance.destroy();
-    const theme = chartTheme();
-
-    const byKey = {};
-    stock.forEach((s) => { byKey[s.key] = s; });
-    const order = ['eco', 'auto', 'trail', 'turbo'];
-    const labels = order.map((k) => (byKey[k] ? byKey[k].label : k.toUpperCase()));
-    const ours = order.map((k, i) => ourRuntimes[i] || 0);
-    const theirs = order.map((k) => (byKey[k] ? byKey[k].runtime : 0));
-
-    stockChartInstance = new Chart(ctx, {
-        type: 'bar',
-        data: {
-            labels,
-            datasets: [
-                { label: 'This calculator', data: ours, backgroundColor: theme.modeColors, borderRadius: 4 },
-                { label: 'DJI stock', data: theirs, backgroundColor: theme.faint, borderRadius: 4 }
-            ]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-                legend: { display: true, position: 'top', labels: { color: theme.tick, boxWidth: 12 } }
-            },
-            scales: {
-                y: { grid: { color: theme.grid }, ticks: { color: theme.tick, font: { size: 10 } } },
-                x: { grid: { display: false }, ticks: { color: theme.tick, font: { size: 10, weight: 'bold' } } }
-            }
-        }
-    });
-}
-
-function initCharts(rangeData, runtimeData) {
+function initCharts(rangeData, runtimeData, stock) {
             const ctxRange = document.getElementById('rangeChart').getContext('2d');
             const ctxRuntime = document.getElementById('runtimeChart').getContext('2d');
             const theme = chartTheme();
+
+            /* The DJI stock values ride along in BOTH charts, so the comparison
+               exists for distance and for duration alike, instead of living in
+               a separate chart that repeated the durations. */
+            const order = ['eco', 'auto', 'trail', 'turbo'];
+            const byKey = {};
+            (stock || []).forEach((s) => { byKey[s.key] = s; });
+            const hasStock = !!(stock && stock.length);
+            const stockDataset = (pick) => ({
+                label: 'DJI stock',
+                data: order.map((k) => (byKey[k] ? byKey[k][pick] : 0)),
+                backgroundColor: theme.faint,
+                borderRadius: 4
+            });
 
             const chartOptions = {
                 responsive: true,
@@ -2224,15 +2200,22 @@ function initCharts(rangeData, runtimeData) {
     if (rangeChartInstance) rangeChartInstance.destroy();
     if (runtimeChartInstance) runtimeChartInstance.destroy();
 
+    const datasetsFor = (own, pick) => {
+        const sets = [{
+            label: 'This calculator',
+            data: own,
+            backgroundColor: theme.modeColors,
+            borderRadius: 4
+        }];
+        if (hasStock) sets.push(stockDataset(pick));
+        return sets;
+    };
+
     rangeChartInstance = new Chart(ctxRange, {
         type: 'bar',
         data: {
             labels: ['ECO', 'AUTO', 'TRAIL', 'TURBO'],
-            datasets: [{
-                data: rangeData,
-                        backgroundColor: theme.modeColors,
-                        borderRadius: 4
-            }]
+            datasets: datasetsFor(rangeData, 'range')
         },
         options: chartOptions
     });
@@ -2241,11 +2224,7 @@ function initCharts(rangeData, runtimeData) {
         type: 'bar',
         data: {
             labels: ['ECO', 'AUTO', 'TRAIL', 'TURBO'],
-            datasets: [{
-                data: runtimeData,
-                        backgroundColor: theme.modeColors,
-                        borderRadius: 4
-            }]
+            datasets: datasetsFor(runtimeData, 'runtime')
         },
         options: chartOptions
     });
@@ -2316,7 +2295,7 @@ function initPresetState() {
 
 async function updateSetup() {
     const selectedBattery = document.getElementById('batteryWh').value;
-    document.getElementById('rangeChartTitle').innerText = 'Estimated Max Range (km) • Battery ' + selectedBattery + 'Wh';
+    document.getElementById('rangeChartTitle').innerText = 'Range & Duration • Battery ' + selectedBattery + 'Wh';
 
     const data = {
         bike: document.getElementById('bike').value,
@@ -2401,11 +2380,8 @@ async function updateSetup() {
 
         initCharts(
             [res.eco.range, res.auto.range, res.trail.range, res.turbo.range],
-            [res.eco.runtime, res.auto.runtime, res.trail.runtime, res.turbo.runtime]
-        );
-        initStockChart(
-            res.stock || [],
-            [res.eco.runtime, res.auto.runtime, res.trail.runtime, res.turbo.runtime]
+            [res.eco.runtime, res.auto.runtime, res.trail.runtime, res.turbo.runtime],
+            res.stock || []
         );
         lastCalcRes = res;
         return res;

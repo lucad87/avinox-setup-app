@@ -788,6 +788,15 @@ a { color: var(--accent); }
     padding: .8rem 1rem;
     border-bottom: 1px solid var(--border);
 }
+/* La X (e il titolo) restano raggiungibili: l'intestazione non scorre via con
+   il contenuto, che altrimenti obbliga a risalire tutta la modale per chiuderla. */
+.kb-dialog-head,
+.chart-modal-head {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    background: var(--bg);
+}
 .kb-dialog .workspace-body { padding: 1rem; }
 
 .kb-open { flex: 0 0 auto; font-weight: 750; }
@@ -1244,7 +1253,7 @@ code {
     padding: 1rem;
 }
 .chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
-.chart-box { display: flex; flex-direction: column; height: 256px; }
+.chart-box { display: flex; flex-direction: column; height: 340px; }
 .chart-title {
     font-size: var(--fs-label);
     font-weight: 750;
@@ -1256,11 +1265,26 @@ code {
 }
 .chart-area { flex: 1 1 auto; position: relative; min-height: 0; }
 .chart-box canvas { position: absolute; inset: 0; }
-.chart-area-sm { height: 240px; }
+.chart-caption {
+    margin: 0 0 .35rem;
+    text-align: center;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+    color: var(--muted);
+}
 .chart-hint { margin-top: .5rem; text-align: center; }
+.chart-legend { justify-content: center; margin: 0 0 .6rem; }
 
 .legend { display: flex; flex-wrap: wrap; gap: .6rem; margin-top: .6rem; font-size: 11.5px; font-weight: 700; color: var(--muted); }
 .legend-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: .28rem; }
+/* Le barre del calcolatore hanno un colore per modo: la legenda lo mostra. */
+.legend-dot-modes {
+    background: linear-gradient(90deg, var(--mode-eco) 0 25%, var(--mode-auto) 25% 50%,
+        var(--mode-trail) 50% 75%, var(--mode-turbo) 75% 100%);
+}
+.legend-dot-stock { background: var(--faint); }
 
 /* --------------------------------------------------------------------------
    Griglie risultati
@@ -1765,7 +1789,7 @@ code {
 
     .result-grid, .cols-2, .cols-3, .cols-4, #resultsGrid { grid-template-columns: 1fr; }
     .summary-bar { flex-wrap: wrap; gap: .5rem; }
-    .chart-box { height: 220px; }
+    .chart-box { height: 260px; }
     .kb-grid, .kb-grid-4 { grid-template-columns: 1fr; }
 
     /* Touch target ≥ 40px e niente zoom automatico iOS sugli input */

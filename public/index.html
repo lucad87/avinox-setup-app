@@ -204,28 +204,27 @@
                     <div class="result-grid cols-2" id="resultsGrid"></div>
 
                     <div class="chart-card">
-                        <h3 class="chart-title" id="rangeChartTitle">Estimated Max Range (km)</h3>
+                        <h3 class="chart-title" id="rangeChartTitle">Range &amp; Duration</h3>
                         <p class="hint chart-hint hidden" id="calibrationNote"></p>
+                        <p class="legend chart-legend">
+                            <span><span class="legend-dot legend-dot-modes" aria-hidden="true"></span>This calculator — colour per mode</span>
+                            <span><span class="legend-dot legend-dot-stock" aria-hidden="true"></span>DJI stock</span>
+                        </p>
                         <div class="chart-grid">
                             <div class="chart-box">
+                                <p class="chart-caption">Distance (km)</p>
                                 <div class="chart-area">
                                     <canvas id="rangeChart"></canvas>
                                 </div>
                             </div>
                             <div class="chart-box">
+                                <p class="chart-caption">Duration (hours)</p>
                                 <div class="chart-area">
                                     <canvas id="runtimeChart"></canvas>
                                 </div>
                             </div>
                         </div>
-                    </div>
-
-                    <div class="chart-card">
-                        <h3 class="chart-title">Battery Duration — Proposed vs DJI Stock (Hours)</h3>
-                        <div class="chart-area chart-area-sm">
-                            <canvas id="stockChart"></canvas>
-                        </div>
-                        <p class="hint chart-hint">Stock modes: DJI app defaults (ECO Level 4 · 200 W, AUTO 7-11, TRAIL 9-11, TURBO Level 13 · 1300 W), same rider model.</p>
+                        <p class="hint chart-hint">The grey bars are the DJI app defaults (ECO level 4 · 200 W, AUTO 7-11, TRAIL 9-11, TURBO level 13 · 1300 W) on the same rider model.</p>
                     </div>
 
                     <div class="card calibration-status-card">
@@ -704,7 +703,7 @@
                                 The Tuner then projects each mode from that real consumption, scaling it by the mode's amplification factor, and reports it in the calibration card. Loading a recording also puts it straight into the route analysis: pick it in step 1 and it becomes the analyzed route.
                             </p>
                             <p class="hint">
-                                Curiosities worth knowing: the consumption is taken as motor Wh per km of riding (coasting included), while the per-level table shows averages only over the samples where you were actually pedalling — that is why the "riding" figures are higher than the "total" ones. Assist values outside 1–15 (e.g. boost or walk modes) are excluded from the model comparison.
+                                Curiosities worth knowing: the consumption is taken as motor Wh per km of riding (coasting included), while the per-mode table shows averages only over the samples where you were actually pedalling — that is why the "riding" figures are higher than the "total" ones. A recording carries the assist <strong>mode</strong> (ECO / AUTO / TRAIL / TURBO), not the level you had set, so the table groups by mode and the other states the bike also logs (boost, walk, off) stay out of the model comparison.
                             </p>
                         </div>
                     </section>
