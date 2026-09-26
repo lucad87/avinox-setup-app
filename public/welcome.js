@@ -2,6 +2,14 @@
    localStorage key, so switching here also switches the app. */
 (function () {
     'use strict';
+    /* A link to a FAQ entry (/welcome#faq-proto, from the app) opens it. */
+    function openLinkedAnswer() {
+        var target = location.hash && document.getElementById(location.hash.slice(1));
+        if (target && target.tagName === 'DETAILS') target.open = true;
+    }
+    openLinkedAnswer();
+    window.addEventListener('hashchange', openLinkedAnswer);
+
     var btn = document.getElementById('themeToggle');
     if (!btn) return;
     var root = document.documentElement;

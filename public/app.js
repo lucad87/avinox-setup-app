@@ -12,6 +12,49 @@ const CALIBRATION_KEY = 'avinox-calibration';
 let lastCalcRes = null;   // last /api/calculate response (before/after comparison)
 const FORM_KEY = 'avinox-form';
 
+/* The tour invitation greets first visits only. Someone who already used the
+   app has a saved form; it must be read here, before the first calculation
+   saves the form of a first visit too. */
+const WELCOME_KEY = 'avinox-welcome';
+const RETURNING_VISITOR = (() => {
+    try { return localStorage.getItem(FORM_KEY) !== null || localStorage.getItem(CALIBRATION_KEY) !== null; }
+    catch (e) { return true; }
+})();
+
+function dismissWelcome() {
+    try { localStorage.setItem(WELCOME_KEY, 'dismissed'); } catch (e) { /* shown again next time */ }
+    const card = document.getElementById('welcomeCard');
+    if (card) card.classList.add('hidden');
+}
+
+function initWelcomeCard() {
+    const card = document.getElementById('welcomeCard');
+    if (!card) return;
+    let state;
+    try { state = localStorage.getItem(WELCOME_KEY); } catch (e) { return; }
+    if (state === 'dismissed') return;
+    if (RETURNING_VISITOR) { dismissWelcome(); return; }
+    /* On a phone the results column comes after the whole form: the card
+       moves to the top of the form there, and back above the results on a
+       wider screen. */
+    const narrow = window.matchMedia('(max-width: 767px)');
+    const place = () => {
+        const host = document.querySelector(narrow.matches ? '#tabCalc .sidebar-body' : '#tabCalc .workspace-body');
+        if (host && card.parentElement !== host) host.prepend(card);
+    };
+    place();
+    narrow.addEventListener('change', place);
+    card.classList.remove('hidden');
+    document.getElementById('welcomeDismiss').addEventListener('click', dismissWelcome);
+    document.getElementById('welcomeTour').addEventListener('click', dismissWelcome);
+}
+
+function initSidebarLinks() {
+    document.querySelectorAll('[data-open-kb]').forEach((el) => {
+        el.addEventListener('click', () => document.getElementById('kbOpenBtn').click());
+    });
+}
+
 function getCalibration() {
     try {
         const raw = localStorage.getItem(CALIBRATION_KEY);
@@ -1943,6 +1986,8 @@ async function handleProtoFiles(files, opts) {
             /* Keep the bytes on this device: a refresh must not throw away
                what the user just loaded. */
             storeFile('ride', file.name, buf, file.type);
+            /* Someone who loads their own files has found their way. */
+            dismissWelcome();
         }
 
         if (!added.length) {
@@ -2626,6 +2671,7 @@ async function handleRouteFile(file, opts) {
 
     /* Keep the bytes on this device, so a refresh does not lose the route. */
     storeFile('route', file.name, await file.arrayBuffer(), file.type);
+    dismissWelcome();
 
     if (!restore) {
         setFileStatus(parsedRoute.source.toUpperCase() + ' parsed — ' +
@@ -3195,6 +3241,8 @@ window.addEventListener('DOMContentLoaded', () => {
     initDataTransfer();
     initPresetState();
     initTunerLiveInputs();
+    initWelcomeCard();
+    initSidebarLinks();
     /* Bring back what was loaded last time (IndexedDB), quietly: same load
        path, no notice, no "rides analyzed" dialog. */
     restoreStoredFiles().then(() => updateRouteLoadState());

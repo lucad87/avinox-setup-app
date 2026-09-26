@@ -11,6 +11,16 @@
     <meta name="theme-color" content="#F2F0E8">
     <link rel="manifest" href="/manifest.webmanifest">
     <meta name="description" content="Custom assist mode setup and route planning for DJI Avinox M2 and M2S e-bike motors.">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="Avinox Calc">
+    <meta property="og:title" content="Avinox Calc — tune the motor, plan the ride">
+    <meta property="og:description" content="Three numbers per mode for your DJI Avinox M2/M2S, and an honest answer to “will the battery make it?”. Free; your files stay on your device.">
+    <meta property="og:url" content="https://avinox-calculator.lucad.cloud/">
+    <meta property="og:image" content="https://avinox-calculator.lucad.cloud/assets/og-welcome.png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:image:alt" content="Avinox Calc: tune the motor, plan the ride, stop guessing the battery.">
+    <meta name="twitter:card" content="summary_large_image">
     <!-- Pinned versions with integrity hashes: an unpinned URL follows every
          new release, breaking changes included. -->
     <script src="https://cdn.jsdelivr.net/npm/axios@1.20.0/dist/axios.min.js" integrity="sha384-mIJWc6qj9ALoBF2yHkNOf0fbGel66+X3UkhYw57p36/PaTyDpO9pvnxrVZ7ZGJfi" crossorigin="anonymous"></script>
@@ -188,11 +198,27 @@
                         </div>
                     </section>
 
+                    <nav class="sidebar-links" aria-label="More about Avinox Calc">
+                        <a href="/welcome">Tour</a>
+                        <span aria-hidden="true">·</span>
+                        <button type="button" class="link-btn" data-open-kb>Knowledge Base</button>
+                        <span aria-hidden="true">·</span>
+                        <a href="https://github.com/lucad87/avinox-setup-app">GitHub</a>
+                    </nav>
+
                 </div>
             </aside>
 
             <main class="workspace">
                 <div class="workspace-body">
+
+                    <aside id="welcomeCard" class="welcome-card hidden" aria-label="New here?">
+                        <p class="welcome-text"><strong>New here?</strong> Two minutes, four examples, zero manuals.</p>
+                        <div class="welcome-actions">
+                            <a href="/welcome" id="welcomeTour" class="btn btn-primary btn-sm">Take the tour →</a>
+                            <button type="button" id="welcomeDismiss" class="btn btn-ghost btn-sm">Not now</button>
+                        </div>
+                    </aside>
 
                     <div class="summary-bar">
                         <div>
@@ -355,6 +381,7 @@
                         <h2 class="card-title">Load a route or a ride</h2>
                         <p>Drop a planned route (<strong>.gpx</strong> / <strong>.kml</strong>) or a recorded ride (<strong>.proto</strong>) — or type a distance and elevation by hand — then press <strong>Analyze</strong>.</p>
                         <p>You get the energy feasibility, the grade breakdown, the climbs and the assist modes this terrain calls for. A recorded ride also unlocks the map, the sensor graphs and the consumption calibration.</p>
+                        <p class="hint">Not sure what to drop here? <a href="/welcome#case-route">See an example</a>.</p>
                     </div>
 
                     <div id="missionResults" class="hidden">
@@ -545,7 +572,7 @@
                             </div>
                             <p class="hint hidden" id="calibrationStandaloneNote">This factor was measured on the rides you loaded earlier and is stored on this device: it stays applied to the Tuner, to this analysis and to every route you plan, even now that the recordings are no longer loaded. <strong>Remove calibration</strong> goes back to the generic model.</p>
                             <p class="hint hidden" id="calibrationAnomaly"></p>
-                            <p class="hint" id="calibrationEmpty">Ride the bike with the modes you set in the Tuner, then load the recordings here. The real motor energy of your rides, compared with what the model would predict, becomes a personal factor applied to every range, runtime and energy estimate.</p>
+                            <p class="hint" id="calibrationEmpty">Ride the bike with the modes you set in the Tuner, then load the recordings here. The real motor energy of your rides, compared with what the model would predict, becomes a personal factor applied to every range, runtime and energy estimate. <a href="/welcome#faq-proto">Where are my .proto files?</a></p>
                             <div id="calibrationReport" class="hidden"></div>
                         </div>
                     </section>

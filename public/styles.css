@@ -534,6 +534,57 @@ a { color: var(--accent); }
 .btn-ghost:hover { color: var(--ink); border-color: var(--faint); background: var(--surface-2); }
 
 .btn-sm { min-height: 30px; padding: .3rem .65rem; font-size: 12px; border-radius: var(--r-sm); }
+/* Links styled as buttons: no underline, like the <button>s next to them. */
+a.btn { text-decoration: none; }
+
+/* First-visit invitation to the tour (Tuner, above the results). */
+.welcome-card {
+    position: relative;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: .6rem 1rem;
+    padding: .7rem .9rem .7rem 1.1rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow);
+    overflow: hidden;
+}
+.welcome-card::before {
+    content: "";
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 3px;
+    background: var(--brand);
+}
+.welcome-text { color: var(--muted); }
+.welcome-text strong { color: var(--ink); }
+.welcome-actions { display: flex; gap: .4rem; flex-wrap: wrap; }
+
+/* Quiet links at the foot of the Tuner sidebar. */
+.sidebar-links {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: baseline;
+    gap: .4rem;
+    padding: .2rem 0 .4rem;
+    font-size: 12px;
+    color: var(--faint);
+}
+.sidebar-links a { color: var(--muted); }
+.link-btn {
+    padding: 0;
+    background: none;
+    border: 0;
+    color: var(--muted);
+    font-size: inherit;
+    text-decoration: underline;
+    cursor: pointer;
+}
+.link-btn:hover, .sidebar-links a:hover { color: var(--accent); }
 /* A disabled button must not look pressable (the report's optional actions are
    disabled until the rides carry the data they need). */
 .btn:disabled { opacity: .5; cursor: not-allowed; }
