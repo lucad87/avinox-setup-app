@@ -19,7 +19,7 @@ function getCalibration() {
         /* The gate is the physical measurement itself (motor Wh/km). The factor
            is only informative: it is measured against this app's own model, so
            it must not decide whether a calibration is usable. */
-        return (c && c.whPerKm > 0 && c.whPerKm < 50) ? c : null;
+        return (c && c.whPerKm > 0 && c.whPerKm < PLAUSIBLE_WH_PER_KM_MAX) ? c : null;
     } catch (e) { return null; }
 }
 
@@ -51,19 +51,15 @@ function setCalibration(cal) {
 /* The client guards on the PHYSICAL measurement only (Wh/km). The factor it
    computes (actualWh / modelWh, this app's model at the rider's own targets) is
    a ratio near 1 and is shown, but the guard that matters is the one the server
-   applies to the quantity it actually uses - see PLAUSIBLE_* in src/server.ts.
-   A calibration without the per-mode distances (stored before they existed)
-   still works: the server falls back to the generic model instead of rescaling
-   by a reference it cannot justify. */
-const PLAUSIBLE_WH_PER_KM_MIN = 2.5;
+   applies to the quantity it actually uses - see PLAUSIBLE_* in
+   src/energy-model.ts. */
+const { PLAUSIBLE_WH_PER_KM_MIN, PLAUSIBLE_WH_PER_KM_MAX } = AvinoxRideEnergy.constants;
 
 function calibrationIsImplausible(cal) {
     if (!cal) return false;
     return Number.isFinite(cal.whPerKm) && cal.whPerKm < PLAUSIBLE_WH_PER_KM_MIN;
 }
 
-/* Above this a recording is not a measurement of assisted riding either. */
-const PLAUSIBLE_WH_PER_KM_MAX = 50;
 /* Which rides were left out of the calibration, and why (survives a refresh). */
 const CAL_NOTES_KEY = 'avinox-calibration-notes';
 

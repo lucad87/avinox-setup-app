@@ -77,12 +77,25 @@ docker build -t avinox-setup-app .
 docker run -p 3080:3080 avinox-setup-app
 ```
 
-L'applicazione ascolta sulla porta **3080**.
+L'applicazione ascolta sulla porta **3080**. Il container gira con l'utente non privilegiato `node`
+e si ferma subito su `docker stop`.
 
 ## Test
 
-La verifica end-to-end della scheda Route (tab, analisi, mappe, cursore, calibrazione, storage,
-import/export, Knowledge Base) è uno script Playwright singolo con una checklist di asserzioni.
+```bash
+npm install
+npm test
+```
+
+`npm test` usa il test runner integrato di Node (`node:test`), senza dipendenze aggiuntive:
+
+- `src/energy-model.test.ts` — il modello energetico (stima della route, fattore personale,
+  autonomie del Tuner);
+- `src/server.test.ts` — le API, avviate su una porta libera;
+- `test/*.test.js` — i moduli del browser: energia dei giri e rendimento, parser `.proto` (con un
+  generatore di registrazioni sintetiche), pendenze e salite.
+
+La verifica end-to-end nel browser resta manuale.
 
 ---
 
@@ -165,12 +178,24 @@ docker build -t avinox-setup-app .
 docker run -p 3080:3080 avinox-setup-app
 ```
 
-The app listens on port **3080**.
+The app listens on port **3080**. The container runs as the unprivileged `node` user and stops
+immediately on `docker stop`.
 
 ## Tests
 
-The end-to-end verification of the Route tab (tabs, analysis, maps, cursor, calibration, storage,
-import/export, Knowledge Base) is a single Playwright script with a checklist of assertions.
+```bash
+npm install
+npm test
+```
+
+`npm test` runs on Node's built-in test runner (`node:test`), with no extra dependency:
+
+- `src/energy-model.test.ts` — the energy model (route estimate, personal factor, Tuner ranges);
+- `src/server.test.ts` — the API, started on a free port;
+- `test/*.test.js` — the browser modules: ride energy and efficiency, the `.proto` parser (with a
+  synthetic recording builder), grades and climbs.
+
+The end-to-end check in the browser is still manual.
 
 ## License
 

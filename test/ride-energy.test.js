@@ -76,3 +76,8 @@ test('a ride that was charged or has no gauge is left out of the drop', () => {
     assert.equal(r.dropPct, 37.5);
     assert.ok(Math.abs(r.efficiency - 0.8) < 1e-9);
 });
+
+test('the client and the server refuse the same low consumption', () => {
+    const model = require('../src/energy-model');
+    assert.equal(constants.PLAUSIBLE_WH_PER_KM_MIN, model.PLAUSIBLE_WH_PER_KM_MIN);
+});
