@@ -64,7 +64,7 @@ const BIKES: Record<string, BikeSpec> = {
         boostTorque: 150,
         boostPower: 1500,
         boostDurationDefault: 30,
-        note: 'Boost 150 Nm / 1500 W requires the 700 Wh battery; with other batteries peak output is lower.'
+        note: 'Boost 150 Nm / 1500 W requires the FP700 or RS800 battery; with the other packs peak power stays at 1300 W.'
     },
     M2: {
         id: 'M2',
@@ -79,6 +79,32 @@ const BIKES: Record<string, BikeSpec> = {
 };
 
 const DEFAULT_BIKE = 'M2S';
+
+/* The capacity alone does not identify a pack: the FS800 and the RS800 are
+   both 800 Wh, but only the FP700 and the RS800 let the M2S reach its full
+   1500 W / 150 Nm Boost (the FS600 and FS800 stay at 1300 W). */
+interface BatterySpec {
+    id: string | null;
+    wh: number;
+    fullBoost: boolean;
+}
+
+const BATTERIES: Record<string, BatterySpec> = {
+    FS600: { id: 'FS600', wh: 600, fullBoost: false },
+    FP700: { id: 'FP700', wh: 700, fullBoost: true },
+    FS800: { id: 'FS800', wh: 800, fullBoost: false },
+    RS600: { id: 'RS600', wh: 600, fullBoost: false },
+    RS800: { id: 'RS800', wh: 800, fullBoost: true }
+};
+const FULL_BOOST_PACKS = 'FP700 or RS800';
+
+/** The selected pack; an older client sends only the capacity. */
+function pickBattery(body: Record<string, unknown>): BatterySpec {
+    const known = BATTERIES[String(body.battery)];
+    if (known) return known;
+    const wh = pickNumber(body.batteryWh, 800);
+    return { id: null, wh, fullBoost: wh === 700 };
+}
 const BOOST_DURATION_MIN = 1;
 const BOOST_DURATION_MAX = 60;
 
@@ -90,6 +116,15 @@ const BOOST_DURATION_MAX = 60;
 /* value, while a finer grid (10 Nm / 100 W) would not.                 */
 const TORQUE_STEP_NM = 5;
 const POWER_STEP_W = 50;
+
+/* Max Torque is sized for a climb, not for the rider's cruising cadence. Sized
+   at 80 RPM, the power limit would only be reached on the flat: climbing at
+   60 RPM the motor would stop at the torque limit, a quarter below it. */
+const CLIMB_CADENCE_RPM = 60;
+
+function torqueForPower(power: number, rpm: number): number {
+    return (power * 9.55) / Math.min(rpm, CLIMB_CADENCE_RPM);
+}
 
 /* ------------------------ 2. ASSIST LEVELS ------------------------- */
 /* Motor-to-rider support ratios per level, as % of rider input.        */
@@ -278,15 +313,17 @@ function buildMode(
     const idealPower = clamp(round(targetPower), bp.minPower, bike.maxPower);
     const maxPower = snapToGrid(idealPower, POWER_STEP_W, bp.minPower, bike.maxPower);
 
-    // Torque required to deliver that power at the chosen cadence, snapped too.
-    const idealTorque = (maxPower * 9.55) / rpm;
+    // Torque that delivers that power on a climb, snapped too.
+    const idealTorque = torqueForPower(maxPower, rpm);
     const maxTorque = snapToGrid(round(idealTorque), TORQUE_STEP_NM, TORQUE_STEP_NM, bike.maxTorque);
-    const achievable = idealTorque <= bike.maxTorque + 0.5;
+    // Whether the motor can reach that power at all, at the rider's own cadence.
+    const cruiseTorque = (maxPower * 9.55) / rpm;
+    const achievable = cruiseTorque <= bike.maxTorque + 0.5;
 
     if (!achievable) {
         const rpmNeeded = Math.ceil((maxPower * 9.55) / bike.maxTorque);
         warnings.push(
-            `Needs ${round(idealTorque)} Nm at ${round(rpm)} RPM but the motor stops at ${bike.maxTorque} Nm: ` +
+            `Needs ${round(cruiseTorque)} Nm at ${round(rpm)} RPM but the motor stops at ${bike.maxTorque} Nm: ` +
             `the real ceiling is ~${Math.round((bike.maxTorque * rpm) / 9.55)} W. At least ${rpmNeeded} RPM are required.`
         );
     }
@@ -348,7 +385,8 @@ app.post('/api/calculate', (req: Request, res: Response) => {
     }
 
     const bike = pickBike(body.bike);
-    const batteryWh = pickNumber(body.batteryWh, 800);
+    const battery = pickBattery(body);
+    const batteryWh = battery.wh;
 
     // Boost duration: user adjustable, default 30 s, clamped to 1-60 s.
     const boostDuration = clamp(
@@ -440,13 +478,12 @@ app.post('/api/calculate', (req: Request, res: Response) => {
         );
     }
 
-    // The M2S only reaches its full Boost output on the FP700 (700 Wh) pack.
-    // This is surfaced in the Boost card only — no duplicate global banner.
+    // The M2S only reaches its full Boost output on the FP700 and RS800 packs.
     let boostNote: string | null = bike.note ?? null;
     if (bike.id === 'M2S') {
-        boostNote = batteryWh === 700
-            ? 'FP700 (700 Wh) pack: full 1500 W Boost is available.'
-            : 'Full 1500 W Boost requires the FP700 (700 Wh) pack; with the selected battery peak output is lower.';
+        boostNote = battery.fullBoost
+            ? `${battery.id ?? `${batteryWh} Wh`} pack: the full 1500 W / 150 Nm Boost is available.`
+            : `The full 1500 W / 150 Nm Boost needs the ${FULL_BOOST_PACKS} pack: with this one peak power stays at 1300 W.`;
     }
 
     // Stock DJI modes (reference): expected draw with the same rider model,
@@ -482,6 +519,7 @@ app.post('/api/calculate', (req: Request, res: Response) => {
         totalWeight,
         cadence: round(rpm),
         riderPower: round(pRider),
+        battery: battery.id,
         batteryWh,
         maxPowerAtCadence,
         maxTorqueAtCadence: bike.maxTorque,
@@ -494,8 +532,8 @@ app.post('/api/calculate', (req: Request, res: Response) => {
             durationMin: BOOST_DURATION_MIN,
             durationMax: BOOST_DURATION_MAX,
             durationDefault: bike.boostDurationDefault,
-            fullPowerRequires: bike.id === 'M2S' ? 'FP700 (700 Wh)' : null,
-            fullPowerAvailable: bike.id !== 'M2S' || batteryWh === 700,
+            fullPowerRequires: bike.id === 'M2S' ? FULL_BOOST_PACKS : null,
+            fullPowerAvailable: bike.id !== 'M2S' || battery.fullBoost,
             note: boostNote
         },
         ...modes,
@@ -578,7 +616,7 @@ app.post('/api/calculate-mission', (req: Request, res: Response) => {
     }
 
     const bike = pickBike(body.bike);
-    const batteryWh = pickNumber(body.batteryWh, 800);
+    const batteryWh = pickBattery(body).wh;
     const totalWeight = riderWeight + bikeWeight;
 
     const { gradeDistribution, surfaceId, reservePercent, real, energy } =
@@ -626,7 +664,7 @@ app.post('/api/calculate-mission', (req: Request, res: Response) => {
     const snapPower = (w: number, bp: ModeBlueprint) =>
         snapToGrid(clamp(round(w), bp.minPower, bike.maxPower), POWER_STEP_W, bp.minPower, bike.maxPower);
     const snapTorque = (w: number) =>
-        snapToGrid(round((w * 9.55) / rpm), TORQUE_STEP_NM, TORQUE_STEP_NM, bike.maxTorque);
+        snapToGrid(round(torqueForPower(w, rpm)), TORQUE_STEP_NM, TORQUE_STEP_NM, bike.maxTorque);
 
     const ecoW = snapPower(totalWeight * ecoWkg, ecoBp);
     const ecoNm = snapTorque(ecoW);
@@ -750,7 +788,7 @@ app.post('/api/route-modes', (req: Request, res: Response) => {
 
     const bike = pickBike(body.bike);
     const totalWeight = riderWeight + bikeWeight;
-    const batteryWh = pickNumber(body.batteryWh, 800);
+    const batteryWh = pickBattery(body).wh;
     const km = pickNumber(body.targetKm, 0);
     const hm = pickNumber(body.targetH_m, 0);
     const { gradeDistribution, surfaceId, energy } = readRouteEnergy(body, km, hm, totalWeight, batteryWh);
@@ -780,7 +818,7 @@ app.post('/api/route-modes', (req: Request, res: Response) => {
             clamp(round(totalWeight * wkg), 100, bike.maxPower),
             POWER_STEP_W, 100, bike.maxPower
         );
-        const idealTorque = ((power * 9.55) / rpm) * torqueFactor;
+        const idealTorque = torqueForPower(power, rpm) * torqueFactor;
         const torque = snapToGrid(
             round(idealTorque),
             TORQUE_STEP_NM, TORQUE_STEP_NM, bike.maxTorque
@@ -800,7 +838,7 @@ app.post('/api/route-modes', (req: Request, res: Response) => {
             continuedAssist: dynamic.continued,
             maxAccel: null,
             amplification: pRider > 0 ? Math.round((power / pRider) * 100) / 100 : 0,
-            achievable: idealTorque <= bike.maxTorque + 0.5,
+            achievable: ((power * 9.55) / rpm) * torqueFactor <= bike.maxTorque + 0.5,
             rationale
         };
     }

@@ -80,19 +80,19 @@
                                     </select>
                                 </div>
                                 <div class="field">
-                                    <label for="batteryWh">Battery Pack</label>
-                                    <select id="batteryWh" class="select">
+                                    <label for="battery">Battery Pack</label>
+                                    <select id="battery" class="select">
                                         <optgroup label="Integrated">
-                                            <option value="600">600 Wh — integrated</option>
-                                            <option value="700">700 Wh — FP700</option>
-                                            <option value="800" selected>800 Wh — integrated</option>
+                                            <option value="FS600" data-wh="600">600 Wh — FS600</option>
+                                            <option value="FP700" data-wh="700">700 Wh — FP700</option>
+                                            <option value="FS800" data-wh="800" selected>800 Wh — FS800</option>
                                         </optgroup>
                                         <optgroup label="Removable">
-                                            <option value="600">600 Wh — RS600 (also a range extender)</option>
-                                            <option value="800">800 Wh — RS800</option>
+                                            <option value="RS600" data-wh="600">600 Wh — RS600 (also a range extender)</option>
+                                            <option value="RS800" data-wh="800">800 Wh — RS800</option>
                                         </optgroup>
                                     </select>
-                                    <p class="hint">The FP700 is the pack that unlocks the M2S's full 1500 W Boost.</p>
+                                    <p class="hint" id="batteryHint">The FP700 and the RS800 are the packs that unlock the M2S's full 1500 W Boost.</p>
                                 </div>
                                 <div class="field">
                                     <label for="boostDuration">Boost Duration (s)</label>
@@ -798,7 +798,7 @@
                                 </div>
                                 <div class="kb-tile">
                                     <h4>Max Torque (Nm) <span class="kb-tag">Response Dynamics</span></h4>
-                                    <p>Defines the peak turning force of the motor block. Lower settings offer smooth traction, while values exceeding 80 Nm produce a quick, dirtbike-like engagement on steep trails.</p>
+                                    <p>Defines the peak turning force of the motor block. Lower settings offer smooth traction, while values exceeding 80 Nm produce a quick, dirtbike-like engagement on steep trails. The Tuner sizes it so the mode still reaches its Max Power on a climb at <strong>60 RPM</strong> (or at your cadence, if lower): sized at a cruising 80 RPM, the motor would stop at the torque limit, a quarter below the power you set, exactly where you need it.</p>
                                 </div>
                                 <div class="kb-tile">
                                     <h4>Assist Level (Multiplier Factor) <span class="kb-tag">Bio-Mechanical Match</span></h4>
@@ -941,7 +941,7 @@
                             <div class="kb-grid">
                                 <div class="kb-tile">
                                     <h4>Boost Duration</h4>
-                                    <p>Adjustable from 1 to 60 seconds, default 30 s. Torque and power in Boost are fixed by the hardware and are not user adjustable. On the M2S the full 1500 W requires the <strong>FP700 (700 Wh)</strong> pack; with any other battery peak Boost output is lower.</p>
+                                    <p>Adjustable from 1 to 60 seconds, default 30 s. Torque and power in Boost are fixed by the hardware and are not user adjustable. On the M2S the full 1500 W / 150 Nm requires the <strong>FP700</strong> or the <strong>RS800</strong> pack; with the FS600, FS800 and RS600 peak power stays at 1300 W.</p>
                                 </div>
                                 <div class="kb-tile">
                                     <h4>Battery Packs</h4>

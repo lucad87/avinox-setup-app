@@ -94,7 +94,13 @@ function rideMotorWhPerKm(ride) {
 /* The pack the rides were measured on is the one selected in the Tuner: the
    battery drop of the rides only converts to Wh through its capacity. */
 function selectedBatteryWh() {
-    return parseFloat((document.getElementById('batteryWh') || {}).value) || 0;
+    const select = document.getElementById('battery');
+    const option = select && select.selectedOptions[0];
+    return option ? parseFloat(option.dataset.wh) || 0 : 0;
+}
+
+function selectedBatteryId() {
+    return (document.getElementById('battery') || {}).value || '';
 }
 
 function ridesPackEfficiency(rides) {
@@ -1385,7 +1391,12 @@ function downsampleRide(samples, buckets) {
     const out = [];
     for (let i = 0; i < samples.length; i += size) {
         const chunk = samples.slice(i, i + size);
-        const mean = (fn) => chunk.reduce((a, s) => a + (fn(s) || 0), 0) / chunk.length;
+        /* Only the samples that carry the channel: a missing altitude or
+           temperature is null, and averaging it as 0 would drag the line down. */
+        const mean = (fn) => {
+            const values = chunk.map(fn).filter(Number.isFinite);
+            return values.length ? values.reduce((a, v) => a + v, 0) / values.length : null;
+        };
         const max = (fn) => Math.max(...chunk.map((s) => fn(s) || 0));
         out.push({
             minute: Math.round((chunk[0].timestamp - samples[0].timestamp) / 60),
@@ -1967,7 +1978,8 @@ async function handleProtoFiles(files, opts) {
                 duration: loadedRides.reduce((m, r) => m + r.metadata.duration, 0),
                 samples: analysisSamples.length
             },
-            samples: analysisSamples
+            samples: analysisSamples,
+            rides: usedRides.length ? usedRides : loadedRides
         };
 
             const analysis = analyzeRideForCalibration(merged);
@@ -2052,36 +2064,32 @@ function analyzeRideForCalibration(parsed) {
     const samples = parsed.samples.filter((s) => s && s.timestamp && s.assist >= 1 && s.assist <= 15);
     if (samples.length < 10) throw Error('Not enough comparable samples in this ride file (assist modes).');
 
-    /* The motor energy over EVERY sample, including the states the app does not
-       model (boost, walk, off): that is what emptied the battery, so it is what
-       the measured consumption per km must be built on. */
-    const allSamples = parsed.samples.filter((s) => s && s.timestamp);
+    /* Distance and motor energy are totalled ride by ride, over EVERY sample,
+       including the states the app does not model (boost, walk, off): that is
+       what emptied the battery. Each file restarts its distance counter, so
+       the totals add up the rides instead of reading one counter. */
+    const perRide = (parsed.rides || [parsed]).map((r) => AvinoxRideEnergy.rideEnergy(r.samples));
+    const totalWh = perRide.reduce((a, r) => a + r.motorWh, 0);
+    const distanceKm = perRide.reduce((a, r) => a + r.km, 0);
 
     /* Per-mode aggregation with sample-interval weighting. */
     const byLevel = {};
-    let totalWh = 0, distanceKm = 0, batteryStart = null, batteryEnd = null;
-    /* Distance must ADD UP over merged rides: each file restarts its
-       distance counter at zero, so the max would only give the longest
-       ride while energy is summed over all of them. */
-    let prevDist = null, distOffset = 0, prevKm = null;
+    let batteryStart = null, batteryEnd = null;
+    let prevKm = null;
 
     for (let i = 0; i < samples.length; i++) {
         const s = samples[i];
-        const prev = i > 0 ? samples[i - 1] : null;
-        const dt = prev && s.timestamp > prev.timestamp ? Math.min((s.timestamp - prev.timestamp), 10) : 1;
+        const dt = AvinoxRideEnergy.sampleIntervalS(s, i > 0 ? samples[i - 1] : null);
         if (s.battery != null) {
             if (batteryStart === null) batteryStart = s.battery;
             batteryEnd = s.battery;
         }
-        const rideDist = s.distanceKm || 0;
-        if (prevDist !== null && rideDist < prevDist - 0.5) distOffset += prevDist; // new ride, counter restarted
-        if (prevDist === null) distOffset = 0;
-        prevDist = rideDist;
-        distanceKm = distOffset + rideDist;
         /* Distance ridden since the previous sample, kept per assist value for
-           the report: it is what the file states, nothing more. */
-        const stepKm = prevKm === null ? 0 : Math.max(0, Math.min(0.5, distanceKm - prevKm));
-        prevKm = distanceKm;
+           the report: it is what the file states, nothing more. A counter
+           restarting at the next ride reads as a step back and counts zero. */
+        const rideKm = s.distanceKm || 0;
+        const stepKm = prevKm === null ? 0 : Math.max(0, Math.min(0.5, rideKm - prevKm));
+        prevKm = rideKm;
 
         const lvl = s.assist;
         if (!byLevel[lvl]) byLevel[lvl] = { level: lvl, seconds: 0, km: 0, riderWh: 0, motorWh: 0, samples: 0, activeSeconds: 0, activeRiderWh: 0, activeMotorWh: 0 };
@@ -2101,14 +2109,6 @@ function analyzeRideForCalibration(parsed) {
             b.activeRiderWh += riderW * dt / 3600;
             b.activeMotorWh += motorW * dt / 3600;
         }
-    }
-
-    /* Second pass: the motor energy of the whole ride, every sample in it. */
-    for (let i = 0; i < allSamples.length; i++) {
-        const s = allSamples[i];
-        const prev = i > 0 ? allSamples[i - 1] : null;
-        const dt = prev && s.timestamp > prev.timestamp ? Math.min((s.timestamp - prev.timestamp), 10) : 1;
-        totalWh += (s.motorPower || 0) * dt / 3600;
     }
 
     const levels = Object.values(byLevel)
@@ -2222,11 +2222,16 @@ function renderCalibrationReport(analysis) {
 
 /* ---- Form persistence (Phase 1) ---------------------------------------- */
 
-const FORM_FIELDS = ['bike', 'batteryWh', 'boostDuration', 'riderWeight', 'bikeWeight', 'cadence', 'riderPower', 'ecoWkg', 'autoWkg', 'trailWkg', 'turboWkg'];
+const FORM_FIELDS = ['bike', 'battery', 'boostDuration', 'riderWeight', 'bikeWeight', 'cadence', 'riderPower', 'ecoWkg', 'autoWkg', 'trailWkg', 'turboWkg'];
+
+/* Forms saved before the pack was identified stored only its capacity: 600
+   and 800 map to the integrated packs, the only 700 Wh pack is the FP700. */
+const LEGACY_BATTERY_BY_WH = { 600: 'FS600', 700: 'FP700', 800: 'FS800' };
 
 function restoreForm() {
     try {
         const saved = JSON.parse(localStorage.getItem(FORM_KEY) || '{}');
+        if (!saved.battery && saved.batteryWh) saved.battery = LEGACY_BATTERY_BY_WH[saved.batteryWh];
         FORM_FIELDS.forEach((id) => {
             const el = document.getElementById(id);
             if (el && saved[id] != null && saved[id] !== '') el.value = saved[id];
@@ -2427,11 +2432,12 @@ function initPresetState() {
 }
 
 async function updateSetup() {
-    const selectedBattery = document.getElementById('batteryWh').value;
-    document.getElementById('rangeChartTitle').innerText = 'Range & Duration • Battery ' + selectedBattery + 'Wh';
+    const selectedBattery = selectedBatteryWh();
+    document.getElementById('rangeChartTitle').innerText = 'Range & Duration • ' + selectedBatteryId() + ' ' + selectedBattery + ' Wh';
 
     const data = {
         bike: document.getElementById('bike').value,
+        battery: selectedBatteryId(),
         batteryWh: selectedBattery,
         boostDuration: document.getElementById('boostDuration').value,
         riderWeight: document.getElementById('riderWeight').value,
@@ -2503,6 +2509,9 @@ async function updateSetup() {
                 footer: m.desc
             }) + warnBlock;
         });
+
+        const batteryHint = document.getElementById('batteryHint');
+        if (batteryHint && res.boost && res.boost.note) batteryHint.innerText = res.boost.note;
 
         const warnBox = document.getElementById('calcWarnings');
         warnBox.innerHTML = (res.warnings && res.warnings.length)
@@ -3072,9 +3081,10 @@ function renderElevationChart(chosen) {
 document.getElementById('missionForm').addEventListener('submit', async (e) => {
     e.preventDefault();
 
-    const selectedBattery = document.getElementById('batteryWh').value;
+    const selectedBattery = selectedBatteryWh();
     const data = {
         bike: document.getElementById('bike').value,
+        battery: selectedBatteryId(),
         batteryWh: selectedBattery,
         riderWeight: document.getElementById('riderWeight').value,
         bikeWeight: document.getElementById('bikeWeight').value,
@@ -3368,7 +3378,7 @@ function showInstallHint() {
 /* Reset the rider form to the project defaults (useful after applying
    ride averages from the calibration). */
 const FORM_DEFAULTS = {
-    bike: 'M2S', batteryWh: '800', boostDuration: '30',
+    bike: 'M2S', battery: 'FS800', boostDuration: '30',
     riderWeight: '82', bikeWeight: '23', cadence: '75', riderPower: '200',
     ecoWkg: '1.36', autoWkg: '2.73', trailWkg: '5.45', turboWkg: '7.72'
 };
@@ -3574,13 +3584,12 @@ function initKbDialog() {
     if (!chip) return;
     const update = () => {
         const bike = document.getElementById('bike');
-        const battery = document.getElementById('batteryWh');
-        if (!bike || !battery) return;
-        chip.innerText = 'Using ' + bike.value + ' · ' + battery.value +
+        if (!bike) return;
+        chip.innerText = 'Using ' + bike.value + ' · ' + selectedBatteryId() + ' ' + selectedBatteryWh() +
             ' Wh — set in Engine Tuner';
     };
     document.getElementById('bike').addEventListener('change', update);
-    document.getElementById('batteryWh').addEventListener('change', update);
+    document.getElementById('battery').addEventListener('change', update);
     update();
 })();
 
@@ -3962,7 +3971,7 @@ function scheduleFromTuner() {
 }
 
 function initTunerLiveInputs() {
-    ['bike', 'batteryWh', 'riderWeight', 'bikeWeight', 'cadence', 'riderPower'].forEach((id) => {
+    ['bike', 'battery', 'riderWeight', 'bikeWeight', 'cadence', 'riderPower'].forEach((id) => {
         const el = document.getElementById(id);
         if (!el) return;
         el.addEventListener('input', scheduleFromTuner);
