@@ -1442,6 +1442,7 @@ code {
 .form-stack > .field-row { gap: .6rem; }
 
 .btn-block { width: 100%; }
+.stack-btn { margin-top: 8px; }
 
 .preset-stack { display: flex; flex-direction: column; gap: .5rem; }
 

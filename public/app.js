@@ -369,8 +369,8 @@ function renderCalibrationState() {
             note.innerText = implausible
                 ? 'The measurement on these rides is out of the plausible range, so it is NOT applied: the ranges you see come from the generic model.'
                 : 'Range and runtime come from your rides: ' +
-                    (cal.whPerKm ?? '?') + ' Wh/km of motor energy, measured while riding at assist level ' +
-                    (cal.avgLevel ?? '?') + '. Estimates are projected per mode from that real consumption.';
+                    (cal.whPerKm ?? '?') + ' Wh/km of motor energy, measured across the modes you rode. ' +
+                    'Estimates are projected per mode from that real consumption.';
         }
         const resetBtn = document.getElementById('calibrationReset');
         if (resetBtn && !resetBtn.dataset.wired) {
@@ -1923,14 +1923,73 @@ function ratioOfLevelClient(level) {
     return table[level] || 0;
 }
 
+/* The recordings carry the assist MODE, not a 1-15 level: field 8 takes 1-5 on
+   real rides (measured on seven of them), with the motor power ordered exactly
+   ECO < AUTO < TRAIL < TURBO. The 1-15 "levels" the app reasons about are its
+   own projection, not something the bike reports. */
+const RIDE_MODES = [
+    { key: 'eco', index: 1, id: 'ecoWkg' },
+    { key: 'auto', index: 2, id: 'autoWkg' },
+    { key: 'trail', index: 3, id: 'trailWkg' },
+    { key: 'turbo', index: 4, id: 'turboWkg' },
+];
+const RIDE_MODE_NAMES = { 1: 'ECO', 2: 'AUTO', 3: 'TRAIL', 4: 'TURBO' };
+
+/** Human name for the assist value a sample carries (non-riding states → other). */
+function rideModeName(value) {
+    return RIDE_MODE_NAMES[value] || 'other';
+}
+
+/* Below this much pedalling the per-mode average is noise, not a preference. */
+const RIDE_TARGET_MIN_SECONDS = 60;
+
+/**
+ * The motor W/kg the rider actually got in each mode over the loaded rides:
+ * for every mode, the average motor power while pedalling, weighted by
+ * pedalling time, over the system weight. It describes what those rides
+ * delivered — terrain and level mix included — so it is a starting point to
+ * review, never a silent correction. Modes without enough data are omitted.
+ */
+function targetsFromRide(analysis) {
+    const totalWeight = (parseFloat(document.getElementById('riderWeight').value) || 0) +
+        (parseFloat(document.getElementById('bikeWeight').value) || 0);
+    if (!(totalWeight > 0)) return {};
+    const out = {};
+    RIDE_MODES.forEach((mode) => {
+        let seconds = 0, motorWh = 0;
+        (analysis.levels || []).forEach((b) => {
+            if (b.level !== mode.index) return;
+            if (b.activeSeconds < RIDE_TARGET_MIN_SECONDS) return;
+            seconds += b.activeSeconds;
+            motorWh += b.activeMotorWh;
+        });
+        if (seconds <= 0) return;
+        const motorW = motorWh / (seconds / 3600);
+        const input = document.getElementById(mode.id);
+        if (!input) return;
+        const min = parseFloat(input.min), max = parseFloat(input.max);
+        const raw = motorW / totalWeight;
+        const wkg = Math.round(Math.min(Math.max(raw, min), max) * 100) / 100;
+        out[mode.key] = {
+            id: mode.id, wkg, motorW: Math.round(motorW),
+            capped: raw > max ? 'max' : (raw < min ? 'min' : null)
+        };
+    });
+    return out;
+}
+
 function renderCalibrationReport(analysis) {
     const report = document.getElementById('calibrationReport');
     if (!report) return;
     lastRideAnalysis = analysis;
     const s = analysis.summary;
+    const targets = targetsFromRide(analysis);
+    const targetCount = Object.keys(targets).length;
     const rows = analysis.levels.map((b) => {
         const riding = b.activeSeconds > 0 ? b.activeSeconds / 3600 : 0;
-        return '<tr><td>Level ' + b.level + '</td><td>' + Math.round(b.seconds / 60) + ' min</td>' +
+        return '<tr><td>' + rideModeName(b.level) +
+            (RIDE_MODE_NAMES[b.level] ? '' : ' <span class="kv-hint">(#' + b.level + ')</span>') + '</td>' +
+            '<td>' + Math.round(b.seconds / 60) + ' min</td>' +
             '<td>' + Math.round(riding > 0 ? b.activeRiderWh / riding : 0) + ' W</td>' +
             '<td>' + Math.round(riding > 0 ? b.activeMotorWh / riding : 0) + ' W</td>' +
             '<td>' + Math.round(b.seconds > 0 ? b.riderWh / (b.seconds / 3600) : 0) + ' W</td>' +
@@ -1947,11 +2006,19 @@ function renderCalibrationReport(analysis) {
         kvRow('Model prediction:', s.modelWh + ' Wh') +
         '</div></div>' +
         '<div class="kb-table-wrap"><table class="kb-table"><thead><tr>' +
-        '<th>Level</th><th>Time</th><th>Rider W (riding)</th><th>Motor W (riding)</th><th>Rider W (total)</th><th>Energy</th>' +
+        '<th>Mode</th><th>Time</th><th>Rider W (riding)</th><th>Motor W (riding)</th><th>Rider W (total)</th><th>Energy</th>' +
         '</tr></thead><tbody>' + rows + '</tbody></table></div>' +
         '<button type="button" id="useRideAverages" class="btn btn-primary btn-block"' +
         ((s.avgCadence && s.avgRiderPower) ? '' : ' disabled') + '>Use ride averages' +
         ((s.avgCadence && s.avgRiderPower) ? ' — ' + s.avgCadence + ' RPM · ' + s.avgRiderPower + ' W' : '') +
+        '</button>' +
+        '<button type="button" id="targetsFromRides" class="btn btn-block stack-btn"' +
+        (targetCount ? '' : ' disabled') +
+        ' title="Sets the four W/kg targets to the motor support your loaded rides actually delivered in each mode, weighted by pedalling time. A recording carries the mode you rode in, not the level you had set. It describes those rides — terrain and mix included — so review it and change it if you want.">' +
+        'Set targets from my rides — ' +
+        (targetCount
+            ? loadedRides.length + ' ride' + (loadedRides.length > 1 ? 's' : '') + ' · ' + targetCount + ' mode' + (targetCount > 1 ? 's' : '')
+            : 'not enough data') +
         '</button>' +
         '<p class="hint">Estimates now come from the real consumption measured on your rides (' + (s.whPerKm ?? '?') + ' Wh/km).</p>';
     const useBtn = document.getElementById('useRideAverages');
@@ -1977,6 +2044,46 @@ function renderCalibrationReport(analysis) {
                 field.classList.add('field-flash');
                 setTimeout(() => field.classList.remove('field-flash'), 2600);
             });
+        });
+    }
+
+    const targetsBtn = document.getElementById('targetsFromRides');
+    if (targetsBtn && targetCount) {
+        targetsBtn.addEventListener('click', () => {
+            const labels = [];
+            const fields = [];
+            RIDE_MODES.forEach((mode) => {
+                const t = targets[mode.key];
+                if (!t) return;
+                const input = document.getElementById(t.id);
+                const slider = document.getElementById(t.id + 'Slider');
+                if (!input) return;
+                input.value = t.wkg.toFixed(2);
+                if (slider) slider.value = t.wkg.toFixed(2);
+                labels.push(mode.key.toUpperCase() + ' ' + t.wkg.toFixed(2) +
+                    (t.capped === 'max' ? ' (capped to its maximum)'
+                        : (t.capped === 'min' ? ' (raised to its minimum)' : '')));
+                fields.push(input.closest('.field') || input);
+            });
+            /* A form change like any other: it persists, the preset highlight
+               is derived from the values, and the Tuner and the visible Route
+               analysis follow through the same debounced path. */
+            saveForm();
+            markActivePreset();
+            scheduleFromTuner();
+            /* The sliders live in the Tuner: take the user there and show which
+               fields changed, or the click looks like nothing happened. */
+            switchTab('calc');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            fields.forEach((field) => {
+                field.classList.remove('field-flash');
+                void field.offsetWidth;
+                field.classList.add('field-flash');
+                setTimeout(() => field.classList.remove('field-flash'), 2600);
+            });
+            showToast('Targets set from your ' + loadedRides.length + ' ride' +
+                (loadedRides.length > 1 ? 's' : '') + ': ' + labels.join(' · ') +
+                ' W/kg. Review them, or pick a riding style to reset.');
         });
     }
 }
