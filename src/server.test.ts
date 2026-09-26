@@ -86,3 +86,32 @@ test('a reserve of zero is honoured by both route endpoints', async () => {
     assert.equal(mission.body.usableWh, 800);
     assert.equal(modes.body.usableWh, 800);
 });
+
+test('the Tuner and the Route quote the same consumption for the same ground', async () => {
+    const tuner = await post('/api/calculate', RIDER);
+    const route = await post('/api/calculate-mission', {
+        ...RIDER, targetKm: 40, targetH_m: 40 * tuner.body.rangeModel.referenceClimbMPerKm,
+        surface: tuner.body.rangeModel.referenceSurface
+    });
+    assert.equal(tuner.status, 200);
+    assert.ok(Math.abs(route.body.energy.estimated / 40 - tuner.body.rangeModel.referenceWhPerKm) < 0.1);
+});
+
+test('the Tuner uses the calibration the client sends', async () => {
+    const generic = await post('/api/calculate', RIDER);
+    const calibrated = await post('/api/calculate', {
+        ...RIDER, realWhPerKm: 9, realKm: 40, realHm: 1000, realEfficiency: 0.8, realSurface: 'mixed'
+    });
+    assert.equal(generic.body.basedOnRealRides, false);
+    assert.equal(calibrated.body.basedOnRealRides, true);
+    assert.equal(calibrated.body.eco.basedOnRealRides, true);
+    assert.notEqual(calibrated.body.eco.range, generic.body.eco.range);
+});
+
+test('the Tuner ranges stay plausible at the default setup', async () => {
+    const r = await post('/api/calculate', RIDER);
+    for (const k of ['eco', 'auto', 'trail', 'turbo']) {
+        assert.ok(r.body[k].whPerKm > 2.5 && r.body[k].whPerKm < 50, `${k}: ${r.body[k].whPerKm} Wh/km`);
+    }
+    assert.equal(r.body.stock.length, 4);
+});
