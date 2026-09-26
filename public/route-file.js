@@ -281,9 +281,15 @@
     // Grade is measured over a distance window, never between two adjacent
     // fixes: a 5 m pair would produce wild percentages.
     var GRADE_WINDOW_M = 25;
+    // Elevation is averaged over ±25 m of track before grades are taken: over
+    // a 25 m window, ±1 m of GPS or barometer noise is ±8% of grade, enough to
+    // paint a steady 10% climb as a quarter "steep". Measured in metres, not in
+    // points, so a sparse route (one fix every few hundred metres) is untouched.
+    var GRADE_SMOOTH_RADIUS_M = 25;
     var CLIMB_MIN_GRADE = 3;        // % needed to count as climbing
     var CLIMB_MIN_GAIN_M = 30;      // m of gain for a climb to be reported
     var CLIMB_MIN_LENGTH_M = 300;   // m of length for a climb to be reported
+    var CLIMB_MAX_BREAK_M = 100;    // a flatter stretch up to this long stays inside the climb
 
     var GRADE_BANDS = [
         { key: 'descent', label: 'Descent', max: -2 },
@@ -301,36 +307,60 @@
         return GRADE_BANDS[GRADE_BANDS.length - 1].key;
     }
 
+    /* The average grade is the gain over the length: a mean of the window
+       grades would weigh a stretch by how densely it was sampled. */
     function finaliseClimb(current) {
-        var sum = current.grades.reduce(function (a, b) { return a + b; }, 0);
         return {
             distanceM: current.distanceM,
             gainM: current.gainM,
-            averageGrade: current.grades.length ? sum / current.grades.length : 0,
+            averageGrade: current.distanceM > 0 ? (current.gainM / current.distanceM) * 100 : 0,
             maxGrade: current.maxGrade
         };
     }
 
-    /** Groups consecutive climbing samples into named climbs. */
+    /**
+     * Groups climbing samples into named climbs. A flatter stretch shorter
+     * than CLIMB_MAX_BREAK_M is held back: if the climb resumes it becomes
+     * part of it, otherwise the climb ends where the climbing did.
+     */
     function detectClimbs(samples) {
         var found = [];
         var current = null;
+        var held = [];
+        var heldM = 0;
+
+        var absorbHeld = function () {
+            held.forEach(function (h) {
+                current.distanceM += h.distanceM;
+                current.gainM += h.gainM;
+            });
+            held = [];
+            heldM = 0;
+        };
+        var closeCurrent = function () {
+            found.push(finaliseClimb(current));
+            current = null;
+            held = [];
+            heldM = 0;
+        };
 
         samples.forEach(function (s) {
             if (s.grade >= CLIMB_MIN_GRADE) {
-                if (!current) {
-                    current = { distanceM: 0, gainM: 0, maxGrade: s.grade, grades: [] };
+                if (current) {
+                    absorbHeld();
+                } else {
+                    current = { distanceM: 0, gainM: 0, maxGrade: s.grade };
                 }
                 current.distanceM += s.distanceM;
                 current.gainM += s.gainM;
                 current.maxGrade = Math.max(current.maxGrade, s.grade);
-                current.grades.push(s.grade);
             } else if (current) {
-                found.push(finaliseClimb(current));
-                current = null;
+                held.push(s);
+                heldM += s.distanceM;
+                if (heldM > CLIMB_MAX_BREAK_M) closeCurrent();
             }
         });
-        if (current) found.push(finaliseClimb(current));
+        if (current) closeCurrent();
 
         return found
             .filter(function (c) {
@@ -348,6 +378,31 @@
     }
 
     /**
+     * Elevation averaged over ±radius metres of track, within the same
+     * segment. Returns new points; a point without elevation keeps null.
+     */
+    function smoothElevationByDistance(points, radiusM) {
+        var along = new Array(points.length);
+        for (var i = 0; i < points.length; i++) {
+            var sameSegment = i > 0 && points[i].segmentId === points[i - 1].segmentId;
+            along[i] = sameSegment ? along[i - 1] + haversine(points[i - 1], points[i]) : 0;
+        }
+
+        return points.map(function (p, i) {
+            if (!Number.isFinite(p.ele)) return Object.assign({}, p, { ele: null });
+            var sum = p.ele;
+            var n = 1;
+            for (var j = i - 1; j >= 0 && points[j].segmentId === p.segmentId && along[i] - along[j] <= radiusM; j--) {
+                if (Number.isFinite(points[j].ele)) { sum += points[j].ele; n++; }
+            }
+            for (var k = i + 1; k < points.length && points[k].segmentId === p.segmentId && along[k] - along[i] <= radiusM; k++) {
+                if (Number.isFinite(points[k].ele)) { sum += points[k].ele; n++; }
+            }
+            return Object.assign({}, p, { ele: sum / n });
+        });
+    }
+
+    /**
      * Grade distribution by distance, plus the climbs found along the way.
      * Returns { ok: false, reason } when elevation is unusable.
      */
@@ -360,6 +415,7 @@
         var status = elevationStatus(elevations);
         if (status !== 'available') return { ok: false, reason: 'elevation-' + status };
         if (points.length < 3) return { ok: false, reason: 'too-few-points' };
+        points = smoothElevationByDistance(points, GRADE_SMOOTH_RADIUS_M);
 
         var samples = [];
         var accDistance = 0;
@@ -474,6 +530,9 @@
                 grade: null
             };
         });
+        /* Same smoothing as computeGradeStats: the map and the bars must not
+           disagree. The profile keeps the elevation as recorded. */
+        points = smoothElevationByDistance(points, GRADE_SMOOTH_RADIUS_M);
 
         var accDistance = 0;
         var startEle = null;
@@ -812,6 +871,7 @@
         computeGradeStats: computeGradeStats,
         computeGradeProfile: computeGradeProfile,
         detectClimbs: detectClimbs,
+        smoothElevationByDistance: smoothElevationByDistance,
         bandForGrade: bandForGrade,
         gradeBands: GRADE_BANDS,
         detectFormat: detectFormat,
@@ -826,6 +886,8 @@
             ELEVATION_THRESHOLD_M: ELEVATION_THRESHOLD_M,
             MAX_POINTS: MAX_POINTS,
             GRADE_WINDOW_M: GRADE_WINDOW_M,
+            GRADE_SMOOTH_RADIUS_M: GRADE_SMOOTH_RADIUS_M,
+            CLIMB_MAX_BREAK_M: CLIMB_MAX_BREAK_M,
             CLIMB_MIN_GRADE: CLIMB_MIN_GRADE,
             CLIMB_MIN_GAIN_M: CLIMB_MIN_GAIN_M,
             CLIMB_MIN_LENGTH_M: CLIMB_MIN_LENGTH_M
