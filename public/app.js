@@ -437,6 +437,13 @@ const RIDE_GAP_DT_S = 20;
 const RIDE_GAP_M = 400;
 let rideMapGaps = [];       // [{ km, m, dt }]
 
+/* The ride map, same lesson as the planned-route one: a feature per segment
+   means thousands of sub-pixel dashes and a dotted track. The channel is
+   continuous, so consecutive segments are grouped by their colour step (24
+   steps across the ramp - invisible to the eye) and each run becomes one long
+   polyline. Gaps keep their own features and their own layer. */
+const RIDE_MAP_COLOUR_STEPS = 24;
+
 function buildRouteGeoJSON(samples, channelId) {
     const ch = MAP_CHANNELS[channelId] || MAP_CHANNELS.speed;
     const step = Math.max(1, Math.floor(samples.length / RIDE_MAP_MAX_POINTS));
@@ -456,28 +463,59 @@ function buildRouteGeoJSON(samples, channelId) {
     }
     if (hi - lo < 1e-6) hi = lo + 1;
 
+    const bucketOf = (v) => Math.max(0, Math.min(RIDE_MAP_COLOUR_STEPS,
+        Math.round(((v - lo) / (hi - lo)) * RIDE_MAP_COLOUR_STEPS)));
+
+    /* Smoothed series, and a tolerance of one colour step: on a map the colour
+       should read the level, not every sample's noise, and long runs are what
+       keeps the line continuous at any zoom (a feature shorter than a pixel is
+       drawn as a dash). */
+    const raw = pts.map((s) => ch.get(s));
+    const smooth = raw.map((_, i) => {
+        let sum = 0, n = 0;
+        for (let j = Math.max(0, i - 2); j <= Math.min(raw.length - 1, i + 2); j++) {
+            if (Number.isFinite(raw[j])) { sum += raw[j]; n++; }
+        }
+        return n ? sum / n : null;
+    });
+    const tolerance = (hi - lo) / RIDE_MAP_COLOUR_STEPS;
+
     const features = [];
     rideMapGaps = [];
+    let run = null;
+    const flush = () => {
+        if (run && run.coords.length > 1) {
+            features.push({
+                type: 'Feature',
+                /* gap marks an unknown stretch (drawn dashed, own layer). */
+                properties: { v: run.v, gap: run.gap ? 1 : 0 },
+                geometry: { type: 'LineString', coordinates: run.coords }
+            });
+        }
+        run = null;
+    };
+
     for (let i = 1; i < pts.length; i++) {
         const a = pts[i - 1], b = pts[i];
-        const va = ch.get(a), vb = ch.get(b);
+        const vb = Number.isFinite(smooth[i]) ? smooth[i] : raw[i];
+        const va = Number.isFinite(smooth[i - 1]) ? smooth[i - 1] : raw[i - 1];
         const v = Number.isFinite(vb) ? vb : va;
-        if (!Number.isFinite(v)) continue;
-        /* Break the track where the position data cannot support a segment:
-           the stretch is kept as a gap feature and drawn dashed, so the ride
-           stays readable without pretending the bike rode a straight line. */
+        if (!Number.isFinite(v)) { flush(); continue; }
+        /* Break the track where the position data cannot support a segment. */
         const dt = (b.timestamp && a.timestamp) ? Math.abs(b.timestamp - a.timestamp) : 0;
         const segM = AvinoxRoute.haversine({ lat: a.latitude, lon: a.longitude }, { lat: b.latitude, lon: b.longitude });
         const isGap = dt > RIDE_GAP_DT_S || segM > RIDE_GAP_M;
         if (isGap) rideMapGaps.push({ km: Number.isFinite(b.distanceKm) ? b.distanceKm : 0, m: segM, dt: dt });
-        features.push({
-            type: 'Feature',
-            /* i = index of this point in rideMapPoints: lets a map hover
-               map back to the graph cursor. gap marks an unknown stretch. */
-            properties: { v, i, gap: isGap ? 1 : 0 },
-            geometry: { type: 'LineString', coordinates: [[a.longitude, a.latitude], [b.longitude, b.latitude]] }
-        });
+        /* Extend the run while the level stays within one colour step. */
+        const sameRun = run && !isGap && !run.gap && Math.abs(v - run.v) <= tolerance;
+        if (!sameRun) {
+            flush();
+            run = { bucket: isGap ? 'gap' : bucketOf(v), v: v, gap: isGap, coords: [[a.longitude, a.latitude]] };
+        }
+        run.coords.push([b.longitude, b.latitude]);
     }
+    flush();
+
     return { geojson: { type: 'FeatureCollection', features }, lo, hi, ch };
 }
 
@@ -571,10 +609,10 @@ function buildRideMap(ride) {
                 const hits = rideMap.queryRenderedFeatures(e.point, { layers: ['route-line'] });
                 if (!hits.length) { setRideCursor(null, 0); return; }
                 if (cursorRaf) return;
-                const mapIdx = hits[0].properties.i;
+                const lngLat = { lng: e.lngLat.lng, lat: e.lngLat.lat };
                 cursorRaf = requestAnimationFrame(() => {
                     cursorRaf = null;
-                    cursorFromMapPoint(mapIdx);
+                    cursorFromMapPosition(lngLat);
                 });
             });
             rideMap.on('mouseout', () => setRideCursor(null, 0));
@@ -591,9 +629,12 @@ function buildRideMap(ride) {
 
 function fitRouteBounds() {
     if (!rideMap || !rideMapPoints.length) return;
+    const el = document.getElementById('rideMap');
+    if (!el || el.offsetHeight === 0) { rideMapNeedsFit = true; return; }
     const bounds = new maplibregl.LngLatBounds();
     rideMapPoints.forEach((p) => bounds.extend([p.longitude, p.latitude]));
     rideMap.fitBounds(bounds, { padding: 30, duration: 0 });
+    rideMapNeedsFit = false;
 }
 
 /* Marker follows the hovered time position on the graphs. */
@@ -617,6 +658,11 @@ function updateMapCursor(idx, total) {
 
 let routeMap = null;
 let routePoints = [];      // merged points of the loaded route file
+/* The map was built (or fitted) while its body was collapsed: it needs a
+   real fit once the container has a height. Same for the ride map. */
+let routeMapNeedsFit = false;
+let rideMapNeedsFit = false;
+let routeHoverRaf = null;
 /* Own numbers of the recording being analysed ({whPerKm, km, hm}), or null
    when the analysis is a planned route or a hand-typed one. */
 let selectedRideMetrics = null;
@@ -683,24 +729,60 @@ function emptyFeature() {
     return { type: 'FeatureCollection', features: [] };
 }
 
-/* One segment per consecutive pair, carrying the gradient of its window.
-   Segments are never drawn across two geometries: that would invent a
-   straight line between unrelated track parts. */
+/* One feature per run of consecutive segments in the SAME grade band. With one
+   feature per segment a real Komoot route produced 9457 features of ~3 m each:
+   at 12.8 m per pixel that is a quarter of a pixel, MapLibre draws every one of
+   them as a tiny dash with a round cap, and the track looks dotted - reported
+   as "the track is practically invisible on the map". Grouping keeps the colour
+   identical (a run is one band by construction), makes the line continuous and
+   cuts the feature count by ~50x. */
 function buildGradeSegments(profile) {
     const features = [];
     const pts = profile.points;
+    let run = null;
+    const flush = () => {
+        if (run && run.coords.length > 1) {
+            features.push({
+                type: 'Feature',
+                properties: { v: run.v },
+                geometry: { type: 'LineString', coordinates: run.coords }
+            });
+        }
+        run = null;
+    };
     for (let i = 1; i < pts.length; i++) {
         const a = pts[i - 1];
         const b = pts[i];
-        if (a.segmentId !== b.segmentId) continue;
+        if (a.segmentId !== b.segmentId) { flush(); continue; }
         const grade = Number.isFinite(b.grade) ? b.grade : (Number.isFinite(a.grade) ? a.grade : 0);
-        features.push({
-            type: 'Feature',
-            properties: { v: grade, km: b.distanceM / 1000, ele: b.ele },
-            geometry: { type: 'LineString', coordinates: [[a.lon, a.lat], [b.lon, b.lat]] }
-        });
+        const band = AvinoxRoute.bandForGrade(grade);
+        if (!run || run.band !== band) {
+            flush();
+            run = { band: band, v: grade, coords: [[a.lon, a.lat]] };
+        }
+        run.coords.push([b.lon, b.lat]);
     }
+    flush();
     return { type: 'FeatureCollection', features };
+}
+
+/* The pointer's position -> the nearest point on the route (km), used by the
+   hover readout and the cursor: with grouped features there is no per-segment
+   index to read any more, and this is more accurate anyway (it answers for the
+   place the pointer is, not for the segment it happened to hit). */
+function nearestRouteCursorKm(lngLat) {
+    if (!routeCursorPoints.length) return null;
+    const cosLat = Math.cos(lngLat.lat * Math.PI / 180);
+    let best = null;
+    let bestD = Infinity;
+    for (let i = 0; i < routeCursorPoints.length; i++) {
+        const p = routeCursorPoints[i];
+        const dx = (p.lon - lngLat.lng) * cosLat;
+        const dy = p.lat - lngLat.lat;
+        const d = dx * dx + dy * dy;
+        if (d < bestD) { bestD = d; best = p; }
+    }
+    return best ? best.km : null;
 }
 
 function clearRouteHover() {
@@ -714,16 +796,26 @@ function routeMapHover(e) {
     const layers = routeMap.getLayer('route-hit') ? ['route-hit', 'route-line'] : ['route-line'];
     const hits = routeMap.queryRenderedFeatures(e.point, { layers: layers });
     if (!hits.length) { clearRouteHover(); return; }
-    const km = Number(hits[0].properties.km);
-    if (!Number.isFinite(km)) { clearRouteHover(); return; }
-    setRouteCursor(km);
+    if (routeHoverRaf) return;
+    const lngLat = { lng: e.lngLat.lng, lat: e.lngLat.lat };
+    routeHoverRaf = requestAnimationFrame(() => {
+        routeHoverRaf = null;
+        const km = nearestRouteCursorKm(lngLat);
+        if (km == null) { clearRouteHover(); return; }
+        setRouteCursor(km);
+    });
 }
 
 function fitRouteMapBounds() {
     if (!routeMap || routePoints.length < 2) return;
+    /* Fitting a container with no height gives a nonsense zoom (the body can
+       still be collapsed at this point): remember to fit when it opens. */
+    const el = document.getElementById('routeMap');
+    if (!el || el.offsetHeight === 0) { routeMapNeedsFit = true; return; }
     const bounds = new maplibregl.LngLatBounds();
     routePoints.forEach((p) => bounds.extend([p.lon, p.lat]));
     routeMap.fitBounds(bounds, { padding: 30, duration: 0 });
+    routeMapNeedsFit = false;
 }
 
 /* Draw (or redraw) the planned route on its map. Only called for route
@@ -1041,6 +1133,24 @@ function setRideCursor(idx, totalLabels) {
 }
 
 /* Reverse direction: a point on the route maps back to the graph index. */
+/* Reverse direction: a point on the map maps back to the graph index. With
+   grouped features there is no per-segment index to read, so the nearest map
+   point to the pointer is used - which is also the honest answer. */
+function cursorFromMapPosition(lngLat) {
+    if (!rideMapPoints.length) return;
+    const cosLat = Math.cos(lngLat.lat * Math.PI / 180);
+    let best = 0;
+    let bestD = Infinity;
+    for (let i = 0; i < rideMapPoints.length; i++) {
+        const p = rideMapPoints[i];
+        const dx = (p.longitude - lngLat.lng) * cosLat;
+        const dy = p.latitude - lngLat.lat;
+        const d = dx * dx + dy * dy;
+        if (d < bestD) { bestD = d; best = i; }
+    }
+    cursorFromMapPoint(best);
+}
+
 function cursorFromMapPoint(mapIdx) {
     const charts = rideCharts.filter((c) => c.data.labels && c.data.labels.length > 1);
     if (!charts.length || !rideMapPoints.length) return;
@@ -3301,8 +3411,17 @@ function graphsOpen() {
    must be told to re-measure or they come back blank (or 0x0). Only the ones
    whose own body is open. */
 function refreshSizedWidgets() {
-    if (rideMap && routeSectionOpen('rideData')) { try { rideMap.resize(); } catch (e) { /* ignore */ } }
-    if (routeMap && routeSectionOpen('routeMap')) { try { routeMap.resize(); } catch (e) { /* ignore */ } }
+    if (rideMap && routeSectionOpen('rideData')) {
+        try { rideMap.resize(); } catch (e) { /* ignore */ }
+        /* A map fitted while hidden has the wrong zoom: re-fit now that it has
+           a size. Only when it still needs it, so opening another section does
+           not throw away a pan/zoom the user made. */
+        if (rideMapNeedsFit) fitRouteBounds();
+    }
+    if (routeMap && routeSectionOpen('routeMap')) {
+        try { routeMap.resize(); } catch (e) { /* ignore */ }
+        if (routeMapNeedsFit) fitRouteMapBounds();
+    }
     if (elevationChartInstance && routeSectionOpen('elevation')) {
         try { elevationChartInstance.resize(); } catch (e) { /* ignore */ }
     }
