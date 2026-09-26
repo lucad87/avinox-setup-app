@@ -21,7 +21,8 @@ export const app = express();
 const port = 3080;
 
 app.use(express.json());
-app.use(express.static(path.join(__dirname, '../public')));
+// extensions: the landing page answers on /welcome as well as /welcome.html.
+app.use(express.static(path.join(__dirname, '../public'), { extensions: ['html'] }));
 
 /* ==================================================================
  * AVINOX ASSIST MODEL — M2 / M2S ONLY
