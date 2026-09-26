@@ -179,3 +179,17 @@ test('the landing page answers on /welcome', async () => {
     assert.match(res.headers.get('content-type') || '', /text\/html/);
     assert.match(await res.text(), /Open the app/);
 });
+
+test('the app points newcomers to the tour, and both pages carry a share preview', async () => {
+    const app = await (await fetch(baseUrl + '/')).text();
+    assert.match(app, /id="welcomeCard"/);
+    assert.match(app, /href="\/welcome#case-route"/);
+    assert.match(app, /href="\/welcome#faq-proto"/);
+    const landing = await (await fetch(baseUrl + '/welcome')).text();
+    for (const page of [app, landing]) assert.match(page, /property="og:image" content="https:\/\/avinox-calculator\.lucad\.cloud\/assets\/og-welcome\.png"/);
+    assert.match(landing, /id="faq-proto"/);
+    assert.match(landing, /id="case-route"/);
+    const image = await fetch(baseUrl + '/assets/og-welcome.png');
+    assert.equal(image.status, 200);
+    assert.equal(image.headers.get('content-type'), 'image/png');
+});

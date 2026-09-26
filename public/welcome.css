@@ -22,8 +22,8 @@
     gap: 3.2rem;
 }
 
-/* Links styled as buttons: no underline, like the app's <button>s. */
-.landing a.btn { text-decoration: none; }
+/* Anchors from the app (#case-route, #faq-proto) land below the sticky header. */
+.landing [id] { scroll-margin-top: calc(var(--header-h) + 1rem); }
 
 /* A long path in a <code> must wrap on a narrow phone, not widen the page. */
 .landing .code-inline { overflow-wrap: anywhere; }
