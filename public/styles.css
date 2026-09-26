@@ -112,16 +112,210 @@ a { color: var(--accent); }
 #tabRoute.hidden { display: none; }
 
 /* Ride selector in step 1 (visibile solo con registrazioni caricate). */
-.ride-picker {
+.ride-picker { flex-direction: row; align-items: center; gap: .6rem; }
+.ride-picker-inline {
+    display: flex;
+    align-items: center;
+    gap: .45rem;
+    flex: 1 1 220px;
+    min-width: 0;
+}
+.ride-picker-inline .select { flex: 1; min-width: 120px; max-width: 420px; }
+/* Blocchi dell'analisi: si aprono come le schede, ma vivono sulla pagina
+   (non dentro una card) e la testata porta il dato chiave, così da chiusi
+   dicono comunque qualcosa. */
+.analysis-head {
+    display: flex;
+    align-items: center;
+    gap: .45rem;
+    width: 100%;
+    padding: .2rem 0;
+    background: none;
+    border: 0;
+    cursor: pointer;
+    font: inherit;
+    text-align: left;
+}
+.analysis-title {
+    font-size: var(--fs-label);
+    font-weight: 700;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+    color: var(--muted);
+}
+.analysis-head:hover .analysis-title { color: var(--accent); }
+/* ▸ che diventa ▾ quando è aperto (le testate delle schede usano ▾) */
+.analysis-head[aria-expanded="true"] .step-chevron { transform: rotate(90deg); }
+.analysis-state {
+    font-size: 11.5px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.analysis-body:not(.hidden) { display: flex; flex-direction: column; gap: .5rem; }
+
+/* Controlli sovrapposti alla mappa (dentro il blocco sticky, così restano a
+   portata di mano anche quando si scorre sui grafici). */
+.map-overlay {
+    position: absolute;
+    z-index: 3;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: .4rem;
+    margin: 0;
+    padding: .35rem .55rem;
+    font-size: 11.5px;
+    background: var(--surface);
+    background: color-mix(in srgb, var(--surface) 92%, transparent);
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    box-shadow: var(--shadow);
+}
+.map-overlay-topright { top: .55rem; right: .55rem; }
+.map-overlay-bottomleft { bottom: .55rem; left: .55rem; }
+/* Il readout della mappa route è vuoto finché non passi il mouse: una
+   scatola vuota sul bordo sarebbe solo rumore. */
+.map-overlay:empty { display: none; }
+.map-overlay .kv-label { white-space: nowrap; }
+.map-overlay .select { max-width: 190px; }
+
+@media (max-width: 767px) {
+    /* Sulla mappa stretta l'etichetta mangerebbe metà schermo */
+    .map-overlay-topright .kv-label { display: none; }
+    .map-overlay-topright .select { max-width: 150px; }
+}
+
+/* --------------------------------------------------------------------------
+   Sezioni collassabili del tab Route
+   Le tre schede hanno una testata sempre visibile che RIASSUME lo stato
+   (non un semplice titolo): collassare serve solo se l'header racconta cosa
+   c'è dentro. Le azioni restano nella testata, fuori dal toggle.
+   -------------------------------------------------------------------------- */
+/* Le testate e i corpi seguono la convenzione delle card dell'app
+   (.card-header: .8rem 1rem + bordo di separazione; .card-body: 1rem):
+   le schede devono avere le stesse dimensioni delle altre card. */
+.step-head {
     display: flex;
     align-items: center;
     gap: .6rem;
-    margin-top: 1rem;
-    padding-top: 1rem;
-    border-top: 1px solid var(--line);
+    flex-wrap: wrap;
+    padding: .8rem 1rem;
 }
-.ride-picker .select { flex: 1; max-width: 420px; }
-.ride-map-channel { flex-direction: row; align-items: center; gap: .5rem; }
+/* Il separatore solo quando il corpo è visibile: su una scheda collassata
+   sarebbe un bordo in più appeso al nulla. */
+.step-head:not(.is-collapsed) { border-bottom: 1px solid var(--border); }
+.step-toggle {
+    display: flex;
+    align-items: center;
+    gap: .45rem;
+    flex: 0 0 auto;
+    padding: 0;
+    background: none;
+    border: 0;
+    cursor: pointer;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+}
+.step-toggle:hover .card-title { color: var(--accent); }
+.step-chevron {
+    display: inline-block;
+    width: 14px;
+    color: var(--muted);
+    transition: transform .15s ease;
+}
+.step-head.is-collapsed .step-chevron { transform: rotate(-90deg); }
+.step-state {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-size: 12px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.step-actions {
+    display: flex;
+    align-items: center;
+    gap: .45rem;
+    flex: 0 0 auto;
+    flex-wrap: wrap;
+}
+/* :not(.hidden) on purpose: un selettore con id batterebbe la utility
+   .hidden e terrebbe in pagina un corpo "collassato". */
+.step-body { padding: 1rem; }
+.step-body:not(.hidden) {
+    display: flex;
+    flex-direction: column;
+    gap: .8rem;
+}
+
+/* Il gruppo grafici è una colonna: senza gap l'etichetta finiva incollata
+   al primo grafico (0 px misurati). */
+#rideGraphsWrap:not(.hidden) {
+    display: flex;
+    flex-direction: column;
+    gap: .8rem;
+}
+
+/* Evidenzia i campi appena riempiti dai valori del giro, dopo il salto al
+   Tuner: senza, l'utente atterra senza sapere cosa è cambiato. */
+@keyframes field-flash {
+    0%, 100% { border-color: var(--border); box-shadow: 0 0 0 0 rgba(90, 248, 34, 0); }
+    30%, 70% { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+}
+.field-flash { animation: field-flash 1.1s ease-in-out 2; }
+
+.graph-toggle {
+    display: flex;
+    align-items: center;
+    gap: .45rem;
+    width: 100%;
+    margin-top: .6rem;
+    padding: .5rem .7rem;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    cursor: pointer;
+    font: inherit;
+    font-size: 12.5px;
+    font-weight: 700;
+    color: var(--ink);
+    text-align: left;
+}
+.graph-toggle:hover { border-color: var(--accent); }
+.graph-toggle-chevron { color: var(--muted); }
+#graphsToggle[aria-expanded="true"] .graph-toggle-chevron { transform: rotate(90deg); }
+
+/* Avviso di pagina (sezioni richiuse dopo un caricamento) */
+.page-notice {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .75rem;
+    flex-wrap: wrap;
+    padding: .55rem .85rem;
+    background: var(--accent-soft);
+    border: 1px solid var(--accent);
+    border-radius: var(--r);
+    font-size: 12.5px;
+    color: var(--ink);
+}
+.page-notice-actions { display: flex; align-items: center; gap: .4rem; flex: 0 0 auto; }
+
+/* Il loader messo in evidenza quando si arriva dal Tuner */
+@keyframes prompt-pulse {
+    0%, 100% { border-color: var(--accent); background: var(--accent-soft); }
+    50% { border-color: var(--accent-hover); background: var(--surface); }
+}
+.dropzone.is-prompted { animation: prompt-pulse 1.1s ease-in-out 3; border-color: var(--accent); }
+
+/* Suggerimento di calibrazione nel Tuner */
+.calibration-cta { margin-top: .6rem; padding-top: .6rem; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: .5rem; }
 
 .rides-flow { width: 100%; }
 .step-num {
@@ -380,6 +574,18 @@ a { color: var(--accent); }
     transition: border-color .15s ease, box-shadow .15s ease, background .15s ease;
 }
 .preset:hover { border-color: var(--accent); background: var(--accent-soft); }
+/* Profilo attivo: stesso linguaggio dell'hover, ma persistente, con il segno
+   che lo rende riconoscibile anche a colpo d'occhio. */
+.preset.is-active {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    box-shadow: inset 0 0 0 1px var(--accent);
+}
+.preset.is-active .preset-title::after {
+    content: ' ✓';
+    color: var(--accent);
+    font-weight: 700;
+}
 .preset-title {
     display: flex;
     align-items: center;
@@ -693,6 +899,30 @@ a { color: var(--accent); }
 
 /* PWA install button (mobile only) and its iOS instructions banner */
 .install-btn { white-space: nowrap; }
+
+/* Export/import nell'header: icona + etichetta, e sotto i 768px resta
+   l'icona (title e aria-label continuano a dire cosa fa). */
+.data-btn { display: inline-flex; align-items: center; gap: .3rem; white-space: nowrap; }
+.data-icon { font-size: 14px; line-height: 1; }
+/* "Clear all data" per esteso su desktop, "Clear" quando lo spazio è poco */
+.reset-short { display: none; }
+
+/* Avviso flottante per le azioni dell'header (export/import) */
+.toast {
+    position: fixed;
+    left: 50%;
+    bottom: 1rem;
+    transform: translateX(-50%);
+    z-index: 60;
+    max-width: min(92vw, 520px);
+    padding: .6rem 1rem;
+    background: var(--ink);
+    color: var(--surface);
+    border-radius: var(--r);
+    box-shadow: var(--shadow-lg);
+    font-size: 12.5px;
+    text-align: center;
+}
 .install-hint {
     position: fixed;
     top: calc(var(--header-h) + .5rem);
@@ -775,8 +1005,39 @@ a { color: var(--accent); }
 }
 .ride-map .maplibregl-ctrl-attrib { font-size: 10px; }
 
+/* Route Map (planned GPX/KML track, coloured by gradient) */
+.route-map-card { display: flex; flex-direction: column; gap: .5rem; }
+/* Contenitore posizionato attorno alla sola mappa: gli overlay (legenda e
+   readout) si ancorano alla mappa, non alla card che include anche la nota. */
+.map-frame { position: relative; }
+.route-map-readout {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink);
+    font-variant-numeric: tabular-nums;
+    min-height: 1.2em;
+}
+.route-map {
+    height: 380px;
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    overflow: hidden;
+    background: var(--surface-2);
+}
+.route-map .maplibregl-ctrl-attrib { font-size: 10px; }
+.band-swatch {
+    display: inline-block;
+    width: 12px;
+    height: 9px;
+    border-radius: 2px;
+    border: 1px solid var(--border);
+    margin-right: .15rem;
+    vertical-align: middle;
+}
+
 @media (max-width: 767px) {
     .ride-map { height: 260px; }
+    .route-map { height: 260px; }
 }
 
 /* Tab Rides: insights a piena larghezza */
@@ -1246,19 +1507,188 @@ code {
     color: var(--muted);
 }
 
-/* Panoramica mission: breakdown + pie */
-.mission-overview {
-    display: grid;
-    grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
-    gap: 1.25rem;
-    align-items: center;
-}
-.pie-block { display: flex; flex-direction: column; align-items: center; }
-.pie-wrap { position: relative; width: 144px; height: 144px; }
-.pie-wrap canvas { position: absolute; inset: 0; }
 
-/* Sezioni del workspace */
-.workspace-section:not(.hidden) { display: flex; flex-direction: column; gap: .5rem; }
+/* --------------------------------------------------------------------------
+   Energy card: quattro blocchi (uso stimato, batteria, fisica, distribuzione)
+   invece di una lista stirata su tutta la larghezza.
+   -------------------------------------------------------------------------- */
+.energy-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 1.4rem 1.8rem;
+    align-items: start;
+}
+.energy-block { display: flex; flex-direction: column; gap: .55rem; min-width: 0; }
+.energy-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .5rem;
+    min-height: 22px;
+}
+.energy-title {
+    font-size: var(--fs-label);
+    font-weight: 700;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--muted);
+}
+.energy-figure {
+    display: flex;
+    align-items: baseline;
+    gap: .35rem;
+    flex-wrap: wrap;
+    margin: 0;
+}
+.energy-value {
+    font-size: 30px;
+    font-weight: 750;
+    line-height: 1;
+    color: var(--ink);
+    font-variant-numeric: tabular-nums;
+}
+.energy-unit { font-size: 13px; font-weight: 700; color: var(--muted); }
+.energy-side {
+    font-size: 12px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+    margin-left: auto;
+}
+.energy-note { margin: 0; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.energy-rows { display: flex; flex-direction: column; gap: .3rem; }
+.energy-rows .kv-row { padding: .1rem 0; font-size: 12.5px; }
+.energy-ok { color: var(--accent); font-weight: 700; }
+.energy-warn { color: var(--mode-trail); font-weight: 700; }
+
+/* Barra impilata della distribuzione + chip per livello */
+.mode-bar {
+    display: flex;
+    height: 14px;
+    border-radius: 7px;
+    overflow: hidden;
+    background: var(--surface-3);
+    border: 1px solid var(--border);
+}
+.mode-bar span { display: block; height: 100%; }
+.mode-chips { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .35rem; }
+.mode-chip {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: .1rem;
+    padding: .35rem .2rem;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-top-width: 3px;
+    border-radius: var(--r);
+    font-size: 10.5px;
+    letter-spacing: .04em;
+    color: var(--muted);
+    text-transform: uppercase;
+}
+.mode-chip strong { font-size: 14px; font-weight: 750; color: var(--ink); }
+.mode-chip[data-mode="eco"] { border-top-color: var(--mode-eco); }
+.mode-chip[data-mode="auto"] { border-top-color: var(--mode-auto); }
+.mode-chip[data-mode="trail"] { border-top-color: var(--mode-trail); }
+.mode-chip[data-mode="turbo"] { border-top-color: var(--mode-turbo); }
+
+@media (max-width: 767px) {
+    .energy-value { font-size: 26px; }
+}
+
+/* Sezioni del workspace. Stessa scatola della .chart-card del profilo
+   altimetrico: i blocchi dell'analisi sono card come tutte le altre, non
+   testo appoggiato sulla pagina. */
+.workspace-section:not(.hidden) {
+    display: flex;
+    flex-direction: column;
+    gap: .5rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow);
+    padding: 1rem;
+}
+
+/* Quick Start come stepper: i passi sono una SEQUENZA, non opzioni
+   parallele; il cerchio numerato e la linea li legano nell'ordine giusto. */
+.kb-stepper { display: flex; flex-direction: column; }
+.kb-step { display: flex; gap: .9rem; }
+.kb-step-rail { display: flex; flex-direction: column; align-items: center; gap: .35rem; flex: 0 0 auto; }
+.kb-step-num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px; height: 30px;
+    flex: 0 0 auto;
+    background: var(--accent);
+    color: #fff;
+    border-radius: 50%;
+    font-size: 12px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+.kb-step-line { flex: 1 1 auto; width: 2px; background: var(--border); }
+.kb-step-body { flex: 1 1 auto; min-width: 0; padding-bottom: 1.5rem; }
+.kb-step:last-child .kb-step-line { display: none; }
+.kb-step:last-child .kb-step-body { padding-bottom: 0; }
+.kb-step-title { margin: 0; font-size: 17px; font-weight: 750; color: var(--ink); line-height: 1.2; }
+.kb-step-sub { margin: .15rem 0 .5rem; font-size: 12px; color: var(--muted); }
+.kb-step-body p { margin: 0 0 .5rem; }
+.kb-step-link { font-size: 12px; color: var(--muted); }
+.kb-fields {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .35rem;
+    margin: .5rem 0 0;
+    padding: 0;
+    list-style: none;
+}
+.kb-fields li {
+    padding: .25rem .5rem;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    font-size: 11.5px;
+    color: var(--muted);
+}
+.kb-preview {
+    margin-top: .5rem;
+    padding: .6rem .7rem;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    max-width: 340px;
+}
+.kb-preview-head { display: flex; align-items: center; justify-content: space-between; gap: .5rem; margin-bottom: .45rem; }
+.kb-preview-mode {
+    font-size: 11px;
+    font-weight: 750;
+    letter-spacing: .05em;
+    padding: .15rem .4rem;
+    border-radius: var(--r);
+    border: 1px solid var(--border);
+    border-left-width: 3px;
+}
+.kb-preview-mode[data-mode="eco"] { border-left-color: var(--mode-eco); }
+.kb-preview-mode[data-mode="auto"] { border-left-color: var(--mode-auto); }
+.kb-preview-mode[data-mode="trail"] { border-left-color: var(--mode-trail); }
+.kb-preview-mode[data-mode="turbo"] { border-left-color: var(--mode-turbo); }
+.kb-preview-note { font-size: 11px; color: var(--muted); }
+.kb-preview-rows {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: .3rem;
+    font-size: 11.5px;
+    color: var(--muted);
+}
+.kb-preview-rows span { padding: .3rem .35rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); text-align: center; }
+
+@media (max-width: 767px) {
+    .kb-step-num { width: 26px; height: 26px; font-size: 11px; }
+    .kb-step { gap: .6rem; }
+    .kb-preview-rows { grid-template-columns: 1fr; }
+}
 
 /* Knowledge Base */
 .kb-grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -1312,7 +1742,14 @@ code {
     /* Dialog KB su mobile: head compatto */
     .kb-dialog:not([open]) { display: none; }
     .kb-dialog[open] { display: flex; flex-direction: column; }
-    .header-actions { align-self: flex-end; }
+    /* Le azioni dell'header restano a destra anche quando vanno a capo:
+       align-self agisce in verticale, non sulla riga wrappata, quindi serve
+       il margine automatico. */
+    .header-actions { align-self: flex-end; margin-left: auto; }
+    /* Etichette corte: con "Clear all data" per esteso i bottoni andavano a
+       capo sotto il logo. */
+    .reset-long { display: none; }
+    .reset-short { display: inline; }
 
     .sidebar {
         position: static;
@@ -1327,7 +1764,6 @@ code {
     .result-grid, .cols-2, .cols-3, .cols-4, #resultsGrid { grid-template-columns: 1fr; }
     .summary-bar { flex-wrap: wrap; gap: .5rem; }
     .chart-box { height: 220px; }
-    .mission-overview { grid-template-columns: 1fr; }
     .kb-grid, .kb-grid-4 { grid-template-columns: 1fr; }
 
     /* Touch target ≥ 40px e niente zoom automatico iOS sugli input */
@@ -1339,6 +1775,9 @@ code {
     .kb-nav a { text-align: center; white-space: nowrap; padding: .4rem .3rem; font-size: 11.5px; }
     /* Header actions: uniform height on mobile */
     .header-actions .btn { min-height: 34px; padding: .3rem .6rem; }
+    /* Header stretto: Export/Import restano icone (title + aria-label) */
+    .data-btn .data-label { display: none; }
+    .data-btn { min-width: 34px; justify-content: center; }
     .theme-toggle .tt-label { display: none; }
     .theme-toggle { min-width: 34px; justify-content: center; }
     .kb-open { min-width: 34px; }

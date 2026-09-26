@@ -444,6 +444,113 @@
         };
     }
 
+    /**
+     * Per-point gradient, for colouring the track on the map.
+     *
+     * Uses the same GRADE_WINDOW_M window as computeGradeStats on purpose: the
+     * colours on the map and the bars in "Route analysis" must come from the
+     * same measurement, or the two would tell different stories about the same
+     * climb. Every point covered by a window carries that window's grade.
+     *
+     * Returns { ok:false, reason } when elevation is unusable (the map then
+     * falls back to a single-colour track).
+     */
+    function computeGradeProfile(points) {
+        if (points.length > MAX_POINTS) points = points.slice(0, MAX_POINTS);
+        var elevations = points.map(function (p) {
+            return Number.isFinite(p.ele) ? p.ele : null;
+        });
+        var status = elevationStatus(elevations);
+        if (status !== 'available') return { ok: false, reason: 'elevation-' + status };
+        if (points.length < 3) return { ok: false, reason: 'too-few-points' };
+
+        var out = points.map(function (p) {
+            return {
+                lat: p.lat,
+                lon: p.lon,
+                ele: Number.isFinite(p.ele) ? p.ele : null,
+                segmentId: p.segmentId,
+                distanceM: 0,
+                grade: null
+            };
+        });
+
+        var accDistance = 0;
+        var startEle = null;
+        var startIdx = 0;
+        var distanceM = 0;
+        var coveredM = 0;
+        var maxGrade = -Infinity;
+        var minGrade = Infinity;
+        var meters = {};
+        GRADE_BANDS.forEach(function (b) { meters[b.key] = 0; });
+
+        var closeWindow = function (endIdx, endEle) {
+            var grade = ((endEle - startEle) / accDistance) * 100;
+            for (var k = startIdx; k <= endIdx; k++) out[k].grade = grade;
+            coveredM += accDistance;
+            meters[bandForGrade(grade)] += accDistance;
+            if (grade > maxGrade) maxGrade = grade;
+            if (grade < minGrade) minGrade = grade;
+            accDistance = 0;
+            startEle = endEle;
+            startIdx = endIdx;
+        };
+
+        for (var i = 1; i < points.length; i++) {
+            var a = points[i - 1];
+            var b = points[i];
+
+            /* A new segment restarts the window: never bridge a discontinuity. */
+            if (a.segmentId !== b.segmentId) {
+                accDistance = 0;
+                startEle = null;
+                continue;
+            }
+            if (!Number.isFinite(a.ele) || !Number.isFinite(b.ele)) continue;
+
+            var d = haversine(a, b);
+            if (d <= 0) continue;
+
+            if (startEle === null) {
+                startEle = a.ele;
+                startIdx = i - 1;
+            }
+            accDistance += d;
+            distanceM += d;
+            out[i].distanceM = distanceM;
+
+            if (accDistance >= GRADE_WINDOW_M) closeWindow(i, b.ele);
+        }
+
+        /* Same trailing flush as computeGradeStats. */
+        if (accDistance > 5 && startEle !== null) {
+            var last = points[points.length - 1];
+            if (Number.isFinite(last.ele)) closeWindow(points.length - 1, last.ele);
+        }
+
+        if (coveredM <= 0) return { ok: false, reason: 'too-short' };
+
+        var percent = {};
+        GRADE_BANDS.forEach(function (b) {
+            percent[b.key] = coveredM > 0 ? (meters[b.key] / coveredM) * 100 : 0;
+        });
+
+        return {
+            ok: true,
+            points: out,
+            distanceM: distanceM,
+            coveredM: coveredM,
+            windowM: GRADE_WINDOW_M,
+            maxGrade: maxGrade,
+            minGrade: minGrade,
+            /* Identical to computeGradeStats().distributionMeters: the map
+               legend and the grade bars must not disagree. */
+            meters: meters,
+            percent: percent
+        };
+    }
+
     /* ------------------------------------------------------------------ *
      * XML helpers
      * ------------------------------------------------------------------ */
@@ -703,6 +810,7 @@
         elevationStatus: elevationStatus,
         computeStats: computeStats,
         computeGradeStats: computeGradeStats,
+        computeGradeProfile: computeGradeProfile,
         detectClimbs: detectClimbs,
         bandForGrade: bandForGrade,
         gradeBands: GRADE_BANDS,
