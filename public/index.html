@@ -674,7 +674,7 @@
                                         <p class="kb-step-sub">Making the estimates yours</p>
                                         <p>Load the recordings the DJI app saved on your phone: the app measures your real consumption (Wh/km) and applies it to every range and runtime, so the numbers stop being generic. From then on, each ride makes the estimates a little more honest.</p>
                                         <p>Every analysed recording offers one thing you can take from it with one click: <strong>Use ride averages</strong> (the cadence and rider power you really pedalled at, into the Tuner). A recording carries the assist values the bike recorded — <strong>1, 2, 3, 4</strong> and occasionally others — and <strong>nothing that says which mode each one was</strong>: the app therefore shows the numbers as they are and does not map them to ECO/AUTO/TRAIL/TURBO. That also means it does not write per-mode targets into the Tuner on its own. The measured consumption (Wh/km over the whole ride) is applied automatically to the route estimates. A recording whose motor really did nothing is not a usable measurement: it is <strong>left out of the calibration</strong>, and the card names it and says why.</p>
-                                        <p class="kb-step-link">See <strong>Rides — real consumption and the map</strong> below for what the graphs show and how the factor is computed.</p>
+                                        <p class="kb-step-link">See <strong>Your rides — real consumption and the map</strong> below for what the graphs show and how the factor is computed.</p>
                                     </div>
                                 </div>
 
@@ -690,7 +690,7 @@
                     <section id="kb-rides" class="kb-section card">
                         <div class="card-header">
                             <div>
-                                <h2 class="card-title">Rides — real consumption and the map</h2>
+                                <h2 class="card-title">Your rides — real consumption and the map</h2>
                                 <p class="kb-subtitle">What the recordings contain, what the graphs show, and how the estimates become yours</p>
                             </div>
                         </div>
@@ -698,8 +698,8 @@
                             <h4>Getting the files</h4>
                             <ol class="kb-steps">
                                 <li>Open the DJI Avinox app and make sure the rides you want are synced.</li>
-                                <li>The recordings live on the phone under <code class="code-block">Android/data/com.avinox.ride/files/ebike/data/</code> — a folder Android hides from file managers.</li>
-                                <li>Copy them to a PC over USB, or pull them into the phone's Download folder with <code class="code-block">adb pull "/sdcard/Android/data/com.avinox.ride/files/ebike/data/" /sdcard/Download/</code> and load them here.</li>
+                                <li>The recordings live on the phone under <code class="code-block">Android/data/com.avinox.ride/files/ebike/data/</code>. The simplest way is the USB cable: connect the phone, choose <strong>File transfer</strong> (not "charging only") and copy that folder from the PC.</li>
+                                <li>From Android 11 some phones hide that folder from the file manager. If yours does, pull it into the phone's Download folder with <code class="code-block">adb pull "/sdcard/Android/data/com.avinox.ride/files/ebike/data/" /sdcard/Download/</code> and load the files here.</li>
                             </ol>
                             <p class="hint">Everything is parsed in the browser: the files are never uploaded. Loading the same ride twice is recognised (by its ride id) and skipped. The library is kept <strong>on this device</strong>, so a refresh does not lose it — <em>Clear all data</em> in the header removes it, <em>Export</em> saves it to a file.</p>
 
