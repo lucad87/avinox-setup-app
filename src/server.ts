@@ -903,7 +903,10 @@ app.post('/api/route-modes', (req: Request, res: Response) => {
 });
 
 if (require.main === module) {
-    app.listen(port, () => {
+    const server = app.listen(port, () => {
         console.log(`Avinox Mission Router running on port ${port}`);
     });
+    /* As PID 1 in a container, Node ignores SIGTERM unless it handles it, and
+       the container is then killed only after the stop timeout. */
+    process.on('SIGTERM', () => server.close(() => process.exit(0)));
 }
