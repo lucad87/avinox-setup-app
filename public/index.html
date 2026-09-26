@@ -533,7 +533,7 @@
                             <div id="calibrationBadge" class="hidden badge badge-ok">calibrated</div>
                             <div id="calibrationSummary" class="hidden">
                                 <div class="kv">
-                                    <div class="kv-row"><span class="kv-label">Personal factor</span><span class="kv-value" id="calibrationFactor">—</span></div>
+                                    <div class="kv-row"><span class="kv-label">Measured use</span><span class="kv-value" id="calibrationFactor">—</span></div>
                                     <div class="kv-row"><span class="kv-label">Calibrated on</span><span class="kv-value" id="calibrationSource">—</span></div>
                                     <div class="kv-row hidden" id="calibrationSelectedRow"><span class="kv-label">Selected ride</span><span class="kv-value" id="calibrationSelectedRide">—</span></div>
                                 </div>
@@ -700,7 +700,7 @@
                             <h4>From data to estimates</h4>
                             <p>
                                 The app measures the <strong>motor energy actually used per kilometre</strong> (Wh/km) over the rides loaded. Because each file restarts its distance counter at zero, the distances of all loaded rides are added up — so more rides give a steadier figure.
-                                The Tuner then projects each mode from that real consumption, scaling it by the mode's amplification factor, and reports it in the calibration card. Loading a recording also puts it straight into the route analysis: pick it in step 1 and it becomes the analyzed route.
+                                The Tuner then projects each mode from that real consumption, and it does so with the <strong>mix of modes you actually rode</strong>: the distance covered in each mode is the weight, and a mode is scaled by its own support relative to that mix. The projection therefore reproduces your measured consumption for the riding you did, and extrapolates to the modes you did not use. A recording does not carry the assist level you had set, so no level is involved. Loading a recording also puts it straight into the route analysis: pick it in step 1 and it becomes the analyzed route.
                             </p>
                             <p class="hint">
                                 Curiosities worth knowing: the consumption is taken as motor Wh per km of riding (coasting included), while the per-mode table shows averages only over the samples where you were actually pedalling — that is why the "riding" figures are higher than the "total" ones. A recording carries the assist <strong>mode</strong> (ECO / AUTO / TRAIL / TURBO), not the level you had set, so the table groups by mode and the other states the bike also logs (boost, walk, off) stay out of the model comparison.

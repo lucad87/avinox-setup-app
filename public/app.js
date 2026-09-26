@@ -16,7 +16,10 @@ function getCalibration() {
     try {
         const raw = localStorage.getItem(CALIBRATION_KEY);
         const c = raw ? JSON.parse(raw) : null;
-        return (c && c.factor > 0 && c.factor < 5) ? c : null;
+        /* The gate is the physical measurement itself (motor Wh/km). The factor
+           is only informative: it is measured against this app's own model, so
+           it must not decide whether a calibration is usable. */
+        return (c && c.whPerKm > 0 && c.whPerKm < 50) ? c : null;
     } catch (e) { return null; }
 }
 
@@ -28,13 +31,13 @@ function setCalibration(cal) {
     renderCalibrationState();
 }
 
-/* The client guards on the PHYSICAL measurement only (Wh/km), not on a factor:
-   the factor here is actualWh / modelWh with the client's own motor model, and
-   it is a different quantity from the personalFactor of the server (energy per
-   km). They do not share a scale - on the same real rides the client's factor
-   is 2.0-2.4 while the server's is 0.64-1.04 - so a factor window here would
-   reject every legitimate ride. See PLAUSIBLE_* in src/server.ts for the
-   window the server applies to the factor it actually uses. */
+/* The client guards on the PHYSICAL measurement only (Wh/km). The factor it
+   computes (actualWh / modelWh, this app's model at the rider's own targets) is
+   a ratio near 1 and is shown, but the guard that matters is the one the server
+   applies to the quantity it actually uses - see PLAUSIBLE_* in src/server.ts.
+   A calibration without the per-mode distances (stored before they existed)
+   still works: the server falls back to the generic model instead of rescaling
+   by a reference it cannot justify. */
 const PLAUSIBLE_WH_PER_KM_MIN = 2.5;
 
 function calibrationIsImplausible(cal) {
@@ -250,7 +253,7 @@ async function importData(file) {
         if (typeof payload.state === 'number') {
             records.push({ id: 'state', kind: 'state', selectedIndex: payload.state, savedAt: Date.now() });
         }
-        if (payload.calibration && payload.calibration.factor > 0) {
+        if (payload.calibration && payload.calibration.whPerKm > 0) {
             try { localStorage.setItem(CALIBRATION_KEY, JSON.stringify(payload.calibration)); } catch (e) { /* ignore */ }
         }
         await idbWrite(records);
@@ -369,7 +372,7 @@ function renderCalibrationState() {
                 ? 'The measurement on these rides is out of the plausible range, so it is NOT applied: the ranges you see come from the generic model.'
                 : 'Range and runtime come from your rides: ' +
                     (cal.whPerKm ?? '?') + ' Wh/km of motor energy, measured across the modes you rode. ' +
-                    'Estimates are projected per mode from that real consumption.';
+                    'Each mode is projected from it by its own support, so the mix you actually rode matches the measurement.';
         }
         const resetBtn = document.getElementById('calibrationReset');
         if (resetBtn && !resetBtn.dataset.wired) {
@@ -1779,6 +1782,10 @@ async function handleProtoFiles(files, opts) {
                 modelWh: analysis.summary.modelWh,
                 whPerKm: analysis.summary.whPerKm,
                 avgLevel: analysis.summary.avgLevel,
+                /* Distance ridden per mode: the weight the measured consumption
+                   belongs to, so every mode can be projected from it. */
+                modeKm: analysis.summary.modeKm,
+                modeWh: analysis.summary.modeWh,
                 realKm: Math.round(calKm * 10) / 10,
                 realHm: Math.round(calHm),
                 rideLabel: loadedRides.length + ' ride(s) · ' + analysis.summary.distanceKm + ' km'
@@ -1818,20 +1825,25 @@ async function handleProtoFiles(files, opts) {
 let lastRideAnalysis = null;
 
 function analyzeRideForCalibration(parsed) {
-    /* Only levels 1-15 are comparable with the model: special values
-       (e.g. 20 = boost/walk) have no table ratio and would skew the
-       factor. They are excluded from both sides of the comparison. */
+    /* A recording carries the assist MODE (ECO/AUTO/TRAIL/TURBO), not the level.
+       The states the bike also logs (boost, walk, off: values above 4) are left
+       out, so both sides of the comparison cover the same riding. */
     const samples = parsed.samples.filter((s) => s && s.timestamp && s.assist >= 1 && s.assist <= 15);
-    if (samples.length < 10) throw Error('Not enough comparable samples in this ride file (levels 1-15).');
+    if (samples.length < 10) throw Error('Not enough comparable samples in this ride file (assist modes).');
 
-    /* Per-level aggregation with sample-interval weighting. */
+    /* Per-mode aggregation with sample-interval weighting. */
     const byLevel = {};
     let actualWh = 0, modelWh = 0, distanceKm = 0, batteryStart = null, batteryEnd = null;
     const bikeMaxPower = 1300; // physical ceiling used by the model comparison
+    /* The measured consumption belongs to the mix of modes actually ridden, so
+       the distance covered in each mode is tracked too: it is the weight the
+       projection uses. */
+    const totalWeight = (parseFloat(document.getElementById('riderWeight').value) || 0) +
+        (parseFloat(document.getElementById('bikeWeight').value) || 0);
     /* Distance must ADD UP over merged rides: each file restarts its
        distance counter at zero, so the max would only give the longest
        ride while energy is summed over all of them. */
-    let prevDist = null, distOffset = 0;
+    let prevDist = null, distOffset = 0, prevKm = null;
 
     for (let i = 0; i < samples.length; i++) {
         const s = samples[i];
@@ -1846,11 +1858,16 @@ function analyzeRideForCalibration(parsed) {
         if (prevDist === null) distOffset = 0;
         prevDist = rideDist;
         distanceKm = distOffset + rideDist;
+        /* Distance ridden since the previous sample: the weight this mode has
+           in the mix the measured consumption belongs to. */
+        const stepKm = prevKm === null ? 0 : Math.max(0, Math.min(0.5, distanceKm - prevKm));
+        prevKm = distanceKm;
 
         const lvl = s.assist;
-        if (!byLevel[lvl]) byLevel[lvl] = { level: lvl, seconds: 0, riderWh: 0, motorWh: 0, samples: 0, activeSeconds: 0, activeRiderWh: 0, activeMotorWh: 0 };
+        if (!byLevel[lvl]) byLevel[lvl] = { level: lvl, seconds: 0, km: 0, riderWh: 0, motorWh: 0, samples: 0, activeSeconds: 0, activeRiderWh: 0, activeMotorWh: 0 };
         const b = byLevel[lvl];
         b.seconds += dt;
+        b.km += stepKm;
         b.samples++;
 
         const riderW = s.riderPower || 0, motorW = s.motorPower || 0;
@@ -1866,8 +1883,10 @@ function analyzeRideForCalibration(parsed) {
             b.activeMotorWh += motorW * dt / 3600;
         }
 
-        /* What the community table would deliver for the same rider input. */
-        const modelMotor = Math.min(ratioOfLevelClient(lvl) * riderW, bikeMaxPower);
+        /* What this app's model delivers in that mode at the targets the rider
+           set: the same rider input, the mode's own support. */
+        const targetWkg = wkgTargetOfMode(lvl);
+        const modelMotor = targetWkg > 0 ? Math.min(targetWkg * totalWeight, bikeMaxPower) : 0;
         modelWh += modelMotor * dt / 3600;
     }
 
@@ -1875,6 +1894,18 @@ function analyzeRideForCalibration(parsed) {
         .filter((b) => b.seconds > 5)
         .sort((a, b) => a.level - b.level);
     if (!levels.length) throw Error('No meaningful assist samples in this ride.');
+
+    /* The mix of modes in the two currencies the projection needs: the distance
+       ridden in each (the weight the measured consumption belongs to) and the
+       motor energy spent (for the report). */
+    const modeKm = { eco: 0, auto: 0, trail: 0, turbo: 0 };
+    const modeWh = { eco: 0, auto: 0, trail: 0, turbo: 0 };
+    levels.forEach((b) => {
+        const mode = RIDE_MODES.find((m) => m.index === b.level);
+        if (!mode) return;
+        modeKm[mode.key] = Math.round(b.km * 100) / 100;
+        modeWh[mode.key] = Math.round(b.motorWh);
+    });
 
     /* Real rider profile: averages over active (pedaling) samples only. */
     const active = samples.filter((s) => (s.riderPower || 0) > 20);
@@ -1909,17 +1940,20 @@ function analyzeRideForCalibration(parsed) {
             avgRiderPower,
             avgCadence,
             whPerKm: whPerKm ? Math.round(whPerKm * 10) / 10 : null,
-            avgLevel: avgLevel ? Math.round(avgLevel * 10) / 10 : null
+            avgLevel: avgLevel ? Math.round(avgLevel * 10) / 10 : null,
+            modeKm,
+            modeWh
         },
         levels
     };
 }
 
-/* Client-side copy of the community level table (kept in sync with the
-   server's ASSIST_LEVELS) so the comparison works without a round-trip. */
-function ratioOfLevelClient(level) {
-    const table = { 1: 0.35, 2: 0.70, 3: 1.00, 4: 1.50, 5: 1.85, 6: 2.15, 7: 2.45, 8: 3.00, 9: 3.60, 10: 4.35, 11: 5.15, 12: 6.05, 13: 7.00, 14: 7.65, 15: 8.00 };
-    return table[level] || 0;
+/** W/kg target the rider set for a mode (1=ECO, 2=AUTO, 3=TRAIL, 4=TURBO). */
+function wkgTargetOfMode(level) {
+    const id = { 1: 'ecoWkg', 2: 'autoWkg', 3: 'trailWkg', 4: 'turboWkg' }[level];
+    const el = id ? document.getElementById(id) : null;
+    const v = el ? parseFloat(el.value) : NaN;
+    return Number.isFinite(v) && v > 0 ? v : 0;
 }
 
 /* The recordings carry the assist MODE, not a 1-15 level: field 8 takes 1-5 on
@@ -2002,7 +2036,8 @@ function renderCalibrationReport(analysis) {
         kvRow('Battery start / finish:', (s.batteryStart ?? '—') + ' / ' + (s.batteryEnd ?? '—') + ' %') +
         kvRow('Your real averages:', (s.avgCadence ?? '—') + ' RPM · ' + (s.avgRiderPower ?? '—') + ' W (while pedaling)') +
         kvRow('Real motor energy:', s.actualWh + ' Wh') +
-        kvRow('Model prediction:', s.modelWh + ' Wh') +
+        kvRow('Model at your targets (ceiling):', s.modelWh + ' Wh' +
+            (s.actualWh > 0 ? ' — you used ' + Math.round((s.actualWh / s.modelWh) * 100) + '%' : '')) +
         '</div></div>' +
         '<div class="kb-table-wrap"><table class="kb-table"><thead><tr>' +
         '<th>Mode</th><th>Time</th><th>Rider W (riding)</th><th>Motor W (riding)</th><th>Rider W (total)</th><th>Energy</th>' +
@@ -2310,14 +2345,17 @@ async function updateSetup() {
         trailWkg: document.getElementById('trailWkg').value,
         turboWkg: document.getElementById('turboWkg').value
     };
-
-    /* Real-ride consumption: when rides are calibrated, ask the API to
-       derive range/runtime from the measured Wh/km instead of the cap. */
+    /* Real-ride consumption: when rides are calibrated, ask the API to derive
+       range/runtime from the measured Wh/km and the distance ridden in each
+       mode (the mix that measurement belongs to). A calibration stored before
+       the mix existed carries no modeKm: the API then serves the generic model
+       rather than rescaling by a reference nobody can justify. */
     const calibration = getCalibration();
-    if (calibration && calibration.whPerKm > 0 && calibration.avgLevel > 0) {
+    if (calibration && calibration.whPerKm > 0 && calibration.modeKm) {
         data.realWhPerKm = calibration.whPerKm;
-        data.realLevel = calibration.avgLevel;
+        data.realModeKm = calibration.modeKm;
     }
+
 
     try {
         const response = await axios.post('/api/calculate', data);

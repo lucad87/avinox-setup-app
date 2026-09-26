@@ -306,21 +306,57 @@ function implausibleReason(whPerKm: number, factor: number | null): string | nul
     return null;
 }
 
+/**
+ * Projects the measured motor consumption onto a single mode.
+ *
+ * A recording does not carry the assist level that produced the measurement —
+ * only the mode (ECO/AUTO/TRAIL/TURBO) — so the measurement is an average over
+ * the modes the rider actually rode. It is projected by the ratio between this
+ * mode's motor support and the support averaged over the ride, both in motor
+ * watts: the currency the rest of the model uses. The stock modes run through
+ * the same path with their own support.
+ */
 function realMetrics(
-    modeLevel: number,
+    modeMotorW: number,
+    mixMotorW: number,
     realMotorWhPerKm: number,
-    realLevel: number,
     batteryWh: number,
     speedKmH: number
-) {
-    const refRatio = ratioOfLevel(realLevel) || 1;
-    const modeRatio = ratioOfLevel(modeLevel) || refRatio;
-    const packWhPerKm = (realMotorWhPerKm / PACK_EFFICIENCY) * (modeRatio / refRatio);
+): { runtime: number; range: number } | null {
+    if (!(modeMotorW > 0) || !(mixMotorW > 0)) return null;
+    const packWhPerKm = (realMotorWhPerKm / PACK_EFFICIENCY) * (modeMotorW / mixMotorW);
     if (!Number.isFinite(packWhPerKm) || packWhPerKm <= 0) return null;
     return {
         runtime: parseFloat((batteryWh / (packWhPerKm * speedKmH)).toFixed(1)),
         range: parseFloat((batteryWh / packWhPerKm).toFixed(0))
     };
+}
+
+/** Distance ridden in each mode, as sent by the client (0 when unknown). */
+function readModeKm(raw: unknown): Record<ModeKey, number> {
+    const src = (raw ?? {}) as Record<string, unknown>;
+    const out = { eco: 0, auto: 0, trail: 0, turbo: 0 } as Record<ModeKey, number>;
+    (Object.keys(out) as ModeKey[]).forEach((k) => {
+        const v = parseFloat(String(src[k]));
+        out[k] = Number.isFinite(v) && v > 0 ? v : 0;
+    });
+    return out;
+}
+
+/**
+ * The motor support averaged over the ride, weighted by the distance ridden in
+ * each mode: the support the measured consumption belongs to. Returns 0 when
+ * the client could not tell (a calibration stored before this existed) — then
+ * the real path is skipped and the generic model is served, instead of
+ * rescaling by a reference nobody can justify.
+ */
+function modeMixSupport(support: Record<ModeKey, number>, km: Record<ModeKey, number>): number {
+    let totalKm = 0, weighted = 0;
+    (Object.keys(support) as ModeKey[]).forEach((k) => {
+        const w = km[k] ?? 0;
+        if (w > 0 && support[k] > 0) { totalKm += w; weighted += w * support[k]; }
+    });
+    return totalKm > 0 ? weighted / totalKm : 0;
 }
 
 interface ModeResult {
@@ -546,24 +582,28 @@ app.post('/api/calculate', (req: Request, res: Response) => {
             : 'Full 1500 W Boost requires the FP700 (700 Wh) pack; with the selected battery peak output is lower.';
     }
 
-    // Real-ride calibration (optional): when the client has parsed rides it
-    // sends the measured motor consumption and the level that produced it.
-    // The range/runtime then come from the real data, not from "cap x hours".
+    // Real-ride calibration (optional): the client sends the measured motor
+    // consumption and the distance ridden in each mode. The measured average
+    // belongs to the mix of modes the rider actually used, so each mode is
+    // projected by its own support relative to that mix.
     const realWhPerKm = parseFloat(String(body.realWhPerKm));
-    const realLevel = parseFloat(String(body.realLevel));
-    const realReject = (Number.isFinite(realWhPerKm) && Number.isFinite(realLevel))
+    const realModeKm = readModeKm(body.realModeKm);
+    const realReject = Number.isFinite(realWhPerKm)
         ? implausibleReason(realWhPerKm, null) : null;
+    const modeSupport: Record<ModeKey, number> = {
+        eco: byKey.eco.typicalPower,
+        auto: byKey.auto.typicalPower,
+        trail: byKey.trail.typicalPower,
+        turbo: byKey.turbo.typicalPower
+    };
+    const mixSupport = modeMixSupport(modeSupport, realModeKm);
     const useReal = Number.isFinite(realWhPerKm) && realWhPerKm > 0
-        && Number.isFinite(realLevel) && realLevel >= 1 && realLevel <= 15
-        && !realReject;
+        && mixSupport > 0 && !realReject;
 
     if (useReal) {
         const speeds: Record<ModeKey, number> = { eco: 22, auto: 18, trail: 14, turbo: 10 };
         (['eco', 'auto', 'trail', 'turbo'] as ModeKey[]).forEach((k) => {
-            const level = k === 'eco' ? byKey.eco.assistMin
-                : k === 'turbo' ? byKey.turbo.assistMax
-                : byKey[k].assistMax;
-            const m = realMetrics(level, realWhPerKm, realLevel, batteryWh, speeds[k]);
+            const m = realMetrics(modeSupport[k], mixSupport, realWhPerKm, batteryWh, speeds[k]);
             if (m) {
                 byKey[k].range = m.range;
                 byKey[k].runtime = m.runtime;
@@ -582,7 +622,8 @@ app.post('/api/calculate', (req: Request, res: Response) => {
         ));
         const speed = { eco: 22, auto: 18, trail: 14, turbo: 10 }[s.key] ?? 15;
         const m = useReal
-            ? (realMetrics(s.level, realWhPerKm, realLevel, batteryWh, speed) || calculateMetrics(stockTypical, speed, batteryWh))
+            ? (realMetrics(stockTypical, mixSupport, realWhPerKm, batteryWh, speed)
+                || calculateMetrics(stockTypical, speed, batteryWh))
             : calculateMetrics(stockTypical, speed, batteryWh);
         return { key: s.key, label: s.label, typicalPower: stockTypical, runtime: m.runtime, range: m.range };
     });
@@ -614,6 +655,7 @@ app.post('/api/calculate', (req: Request, res: Response) => {
         turbo: byKey.turbo,
         stock,
         basedOnRealRides: useReal,
+        calibrationMixWatts: useReal ? Math.round(mixSupport) : null,
         warnings: globalWarnings
     });
 });
