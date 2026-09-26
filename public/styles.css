@@ -534,6 +534,10 @@ a { color: var(--accent); }
 .btn-ghost:hover { color: var(--ink); border-color: var(--faint); background: var(--surface-2); }
 
 .btn-sm { min-height: 30px; padding: .3rem .65rem; font-size: 12px; border-radius: var(--r-sm); }
+/* A disabled button must not look pressable (the report's optional actions are
+   disabled until the rides carry the data they need). */
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+.btn:disabled:hover { background: transparent; border-color: var(--border-strong); color: var(--muted); }
 
 /* Toggle Manual / Route file */
 .segmented {

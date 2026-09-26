@@ -2239,7 +2239,7 @@ function renderCalibrationReport(analysis) {
         ((s.avgCadence && s.avgRiderPower) ? '' : ' disabled') + '>Use ride averages' +
         ((s.avgCadence && s.avgRiderPower) ? ' — ' + s.avgCadence + ' RPM · ' + s.avgRiderPower + ' W' : '') +
         '</button>' +
-        '<button type="button" id="targetsFromRides" class="btn btn-block stack-btn"' +
+        '<button type="button" id="targetsFromRides" class="btn btn-ghost btn-block stack-btn"' +
         (targetCount ? '' : ' disabled') +
         ' title="Sets the four W/kg targets to the motor support your loaded rides actually delivered in each mode, weighted by pedalling time. A recording carries the mode you rode in, not the level you had set. It describes those rides — terrain and mix included — so review it and change it if you want.">' +
         'Set targets from my rides — ' +
@@ -2247,7 +2247,7 @@ function renderCalibrationReport(analysis) {
             ? loadedRides.length + ' ride' + (loadedRides.length > 1 ? 's' : '') + ' · ' + targetCount + ' mode' + (targetCount > 1 ? 's' : '')
             : 'not enough data') +
         '</button>' +
-        '<p class="hint">Estimates now come from the real consumption measured on your rides (' + (s.whPerKm ?? '?') + ' Wh/km).</p>';
+        '<p class="hint">Estimates now come from the real consumption measured on your rides (' + (s.whPerKm ?? '?') + ' Wh/km) — that part is automatic. The two buttons above are optional and independent: each copies something from the rides into the Tuner — the cadence and power you pedalled at, and the motor W/kg each mode delivered — and neither touches your setup until you press it.</p>';
     const useBtn = document.getElementById('useRideAverages');
     if (useBtn && s.avgCadence && s.avgRiderPower) {
         useBtn.addEventListener('click', () => {
