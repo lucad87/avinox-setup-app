@@ -172,3 +172,10 @@ test('a calibration with a motor share puts the Tuner on the rides\' ground', as
     assert.equal(r.body.rangeModel.anchor, 'rides');
     assert.equal(r.body.rangeModel.referenceWhPerKm, Math.round(10.6 / 0.8 * 10) / 10);
 });
+
+test('the landing page answers on /welcome', async () => {
+    const res = await fetch(baseUrl + '/welcome');
+    assert.equal(res.status, 200);
+    assert.match(res.headers.get('content-type') || '', /text\/html/);
+    assert.match(await res.text(), /Open the app/);
+});

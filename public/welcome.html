@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Avinox Calc — what it does and how to use it</title>
+    <meta name="description" content="Assist mode setup and battery planning for DJI Avinox M2 and M2S e-bikes. Your files stay on your device.">
+    <link rel="icon" href="/favicon.ico" sizes="any">
+    <link rel="icon" type="image/png" sizes="64x64" href="/assets/favicon-64.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-32.png">
+    <link rel="apple-touch-icon" href="/assets/favicon-180.png">
+    <meta name="theme-color" content="#F2F0E8">
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="stylesheet" href="/styles.css">
+    <link rel="stylesheet" href="/welcome.css">
+    <script>
+        /* Same theme as the app, applied before first paint. */
+        try {
+            var t = localStorage.getItem('avinox-theme');
+            if (t !== 'light' && t !== 'dark') {
+                t = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+            }
+            document.documentElement.setAttribute('data-theme', t);
+        } catch (e) { /* localStorage unavailable: stay light */ }
+    </script>
+</head>
+<body class="landing">
+
+    <header class="app-header">
+        <a class="brand" href="/" aria-label="Avinox Calc — open the app">
+            <img src="/assets/logo-full.png" alt="Avinox Calc" class="brand-logo">
+            <img src="/assets/logo-mark.png" alt="Avinox Calc" class="brand-mark">
+        </a>
+        <div class="header-actions">
+            <button id="themeToggle" type="button" class="btn btn-ghost btn-sm theme-toggle" aria-label="Switch to dark mode"><span class="tt-icon">☾</span><span class="tt-label">Dark</span></button>
+            <a class="btn btn-primary btn-sm" href="/">Open the app</a>
+        </div>
+    </header>
+
+    <main class="l-main">
+
+        <!-- ================================ Hero ================================ -->
+        <section class="l-hero">
+            <p class="l-eyebrow">For DJI Avinox M2 &amp; M2S</p>
+            <h1 class="l-title">Tune the motor. Plan the ride. Stop guessing the battery.</h1>
+            <p class="l-lead">
+                Avinox Calc turns your weight, your legs and your routes into <strong>three numbers per mode</strong>
+                — and tells you whether the battery gets you home before it gets dark.
+            </p>
+            <div class="l-cta">
+                <a class="btn btn-primary" href="/">Open the app</a>
+                <a class="btn btn-ghost" href="#use-cases">See it in action</a>
+            </div>
+            <ul class="l-facts" aria-label="Key facts">
+                <li><span class="l-fact-dot" aria-hidden="true"></span>Your files never leave your device</li>
+                <li><span class="l-fact-dot" aria-hidden="true"></span>Installs on your phone like an app</li>
+                <li><span class="l-fact-dot" aria-hidden="true"></span>Free, no account, no ads</li>
+            </ul>
+        </section>
+
+        <!-- ============================ What it does ============================ -->
+        <section class="l-section" aria-labelledby="what">
+            <h2 class="l-h2" id="what">What it does</h2>
+            <p class="l-sub">Two tabs and a drop zone. That's the whole app.</p>
+            <div class="l-grid-3">
+                <article class="card l-feature">
+                    <div class="card-body">
+                        <span class="kb-tag">Tuner</span>
+                        <h3 class="l-h3">Three numbers per mode</h3>
+                        <p>Assist level, Max Power and Max Torque for ECO, AUTO, TRAIL and TURBO — sized on your weight, cadence and power. Type them into the DJI app. Done.</p>
+                    </div>
+                </article>
+                <article class="card l-feature">
+                    <div class="card-body">
+                        <span class="kb-tag">Route</span>
+                        <h3 class="l-h3">Will the battery make it?</h3>
+                        <p>Drop a <code class="code-inline">.gpx</code> or <code class="code-inline">.kml</code>: energy verdict with a reserve, grades, climbs, a map coloured by slope and custom modes for that route.</p>
+                    </div>
+                </article>
+                <article class="card l-feature">
+                    <div class="card-body">
+                        <span class="kb-tag">Rides</span>
+                        <h3 class="l-h3">What you really used</h3>
+                        <p>Drop the bike's <code class="code-inline">.proto</code> recordings: real Wh/km, drive efficiency from the battery drop, map and sensor graphs. From then on every estimate is yours.</p>
+                    </div>
+                </article>
+            </div>
+        </section>
+
+        <!-- ============================= How to use ============================= -->
+        <section class="l-section" aria-labelledby="how">
+            <h2 class="l-h2" id="how">How to use it</h2>
+            <p class="l-sub">Three steps. The third one is optional, but it's where it gets good.</p>
+            <ol class="l-steps">
+                <li class="l-step">
+                    <span class="step-num">1</span>
+                    <div>
+                        <h3 class="l-h3">Tell it about you</h3>
+                        <p>Motor, battery, your weight and the bike's, cadence and the power you can hold. No idea? Pick a riding style.</p>
+                    </div>
+                </li>
+                <li class="l-step">
+                    <span class="step-num">2</span>
+                    <div>
+                        <h3 class="l-h3">Copy three numbers per mode</h3>
+                        <p>Open the DJI Avinox app, edit each mode, type level, power and torque. The values already sit on the app's 5&nbsp;Nm / 50&nbsp;W steps.</p>
+                    </div>
+                </li>
+                <li class="l-step">
+                    <span class="step-num">3</span>
+                    <div>
+                        <h3 class="l-h3">Feed it rides and routes</h3>
+                        <p>Recordings calibrate it on your real consumption. Routes get a verdict before you leave, not halfway up the climb.</p>
+                    </div>
+                </li>
+            </ol>
+        </section>
+
+        <!-- ============================== Use cases ============================= -->
+        <section class="l-section" id="use-cases" aria-labelledby="cases">
+            <h2 class="l-h2" id="cases">Use cases</h2>
+            <p class="l-sub">Real situations, real screens. The numbers below come from the app itself.</p>
+
+            <div class="l-cases">
+
+                <!-- 1 · Tuner -->
+                <article class="card l-case">
+                    <div class="card-header">
+                        <div>
+                            <span class="kb-tag">Use case 1 · Tuner</span>
+                            <h3 class="card-title">New bike, stock modes, mild disappointment</h3>
+                        </div>
+                    </div>
+                    <div class="card-body l-case-body">
+                        <div class="l-case-text">
+                            <p class="l-quote">“ECO feels like pushing a fridge. TURBO feels like being fired from a cannon.”</p>
+                            <ol class="l-list">
+                                <li>Open the <strong>Tuner</strong>, enter your weight, cadence and power.</li>
+                                <li>Pick a riding style — <em>Balanced</em> is a good first date.</li>
+                                <li>Copy the three numbers of each mode into the DJI app.</li>
+                            </ol>
+                            <p class="l-result"><strong>Result:</strong> modes that follow your legs, with Max Torque sized for a 60 RPM climb, not for a flat café ride.</p>
+                        </div>
+                        <div class="l-preview" aria-label="Example: Tuner results">
+                            <div class="mode-card" data-mode="eco">
+                                <div class="mode-head"><span class="mode-title">ECO</span><div class="mode-badges"><span class="badge badge-soft">Fixed</span></div></div>
+                                <div class="kv">
+                                    <div class="kv-row"><span class="kv-label">Assist Bound:</span><span class="kv-value">Level 3</span></div>
+                                    <div class="kv-row"><span class="kv-label">Power Limit:</span><span class="kv-value">150 W</span></div>
+                                    <div class="kv-row"><span class="kv-label">Max Torque:</span><span class="kv-value">25 Nm</span></div>
+                                </div>
+                            </div>
+                            <div class="mode-card" data-mode="turbo">
+                                <div class="mode-head"><span class="mode-title">TURBO</span><div class="mode-badges"><span class="badge badge-soft">Fixed</span></div></div>
+                                <div class="kv">
+                                    <div class="kv-row"><span class="kv-label">Assist Bound:</span><span class="kv-value">Level 10</span></div>
+                                    <div class="kv-row"><span class="kv-label">Power Limit:</span><span class="kv-value">800 W</span></div>
+                                    <div class="kv-row"><span class="kv-label">Max Torque:</span><span class="kv-value">125 Nm</span></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </article>
+
+                <!-- 2 · Route -->
+                <article class="card l-case">
+                    <div class="card-header">
+                        <div>
+                            <span class="kb-tag">Use case 2 · Route</span>
+                            <h3 class="card-title">Sunday: 60 km and 1,800 m. Will it make it?</h3>
+                        </div>
+                    </div>
+                    <div class="card-body l-case-body">
+                        <div class="l-case-text">
+                            <p class="l-quote">“My friend says it's fine. My friend also said the last one was ‘mostly flat’.”</p>
+                            <ol class="l-list">
+                                <li>Export the route from your planner — or from the Avinox app — as <code class="code-inline">.gpx</code>.</li>
+                                <li>Drop it on the <strong>Route</strong> tab and pick the surface.</li>
+                                <li>Keep a reserve: 15% by default, because walking a 25 kg bike uphill builds character nobody asked for.</li>
+                            </ol>
+                            <p class="l-result"><strong>Result:</strong> an honest verdict with a range, not a single hopeful number — and, when it's tight, a <strong>ROUTE RESERVE</strong> mode to stretch the last part.</p>
+                        </div>
+                        <div class="l-preview" aria-label="Example: route energy verdict">
+                            <div class="card l-mock">
+                                <div class="card-body">
+                                    <div class="energy-head">
+                                        <span class="energy-title">Estimated use</span>
+                                        <span class="badge badge-warn">Critical marathon</span>
+                                    </div>
+                                    <p class="energy-figure">
+                                        <span class="energy-value">866</span><span class="energy-unit">Wh</span>
+                                        <span class="energy-side">762–970 Wh</span>
+                                    </p>
+                                    <p class="energy-note">Usable: 680 Wh of an 800 Wh pack, 15% reserve kept</p>
+                                    <div class="mode-bar" aria-hidden="true">
+                                        <span style="width:37%;background:var(--mode-eco)"></span><span style="width:41%;background:var(--mode-auto)"></span><span style="width:19%;background:var(--mode-trail)"></span><span style="width:3%;background:var(--mode-turbo)"></span>
+                                    </div>
+                                    <div class="mode-card l-mini" data-mode="custom">
+                                        <div class="mode-head"><span class="mode-title">ROUTE RESERVE</span><div class="mode-badges"><span class="badge badge-soft">Fixed</span></div></div>
+                                        <div class="kv">
+                                            <div class="kv-row"><span class="kv-label">Assist Bound:</span><span class="kv-value">Level 2</span></div>
+                                            <div class="kv-row"><span class="kv-label">Power Limit:</span><span class="kv-value">100 W</span></div>
+                                            <div class="kv-row"><span class="kv-label">Max Torque:</span><span class="kv-value">15 Nm</span></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </article>
+
+                <!-- 3 · Rides -->
+                <article class="card l-case">
+                    <div class="card-header">
+                        <div>
+                            <span class="kb-tag">Use case 3 · Rides</span>
+                            <h3 class="card-title">Yesterday's ride, in numbers</h3>
+                        </div>
+                    </div>
+                    <div class="card-body l-case-body">
+                        <div class="l-case-text">
+                            <p class="l-quote">“The battery went from 95% to 60%. Is that good? Is that bad? Is it the cheese sandwich?”</p>
+                            <ol class="l-list">
+                                <li>Grab the <code class="code-inline">cloud_ride_rec_*.proto</code> files from your phone (see the FAQ).</li>
+                                <li>Drop them on the <strong>Route</strong> tab — several at once is fine.</li>
+                                <li>Read the card: energy, efficiency, and what each assist value actually did.</li>
+                            </ol>
+                            <p class="l-result"><strong>Result:</strong> your real consumption. The Tuner and every route estimate switch to it, on the kind of ground you actually ride.</p>
+                        </div>
+                        <div class="l-preview" aria-label="Example: ride calibration">
+                            <div class="card l-mock">
+                                <div class="card-body kv-compact">
+                                    <div class="kv-row"><span class="kv-label">Distance / climbing</span><span class="kv-value">27.2 km · +854 m</span></div>
+                                    <div class="kv-row"><span class="kv-label">Motor energy</span><span class="kv-value">241 Wh <span class="kv-hint">· 8.8 Wh/km</span></span></div>
+                                    <div class="kv-row"><span class="kv-label">From the battery</span><span class="kv-value">280 Wh <span class="kv-hint">· 95 → 60 %</span></span></div>
+                                    <div class="kv-row"><span class="kv-label">Motor → battery</span><span class="kv-value">86% <span class="kv-hint">measured</span></span></div>
+                                    <div class="kv-row"><span class="kv-label">custom 20</span><span class="kv-value">fixed 1.1×</span></div>
+                                    <div class="kv-row"><span class="kv-label">AUTO</span><span class="kv-value">dynamic 2.3–3.6×</span></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </article>
+
+                <!-- 4 · Ride averages -->
+                <article class="card l-case">
+                    <div class="card-header">
+                        <div>
+                            <span class="kb-tag">Use case 4 · Tuner + Rides</span>
+                            <h3 class="card-title">“I pedal like a gentleman”</h3>
+                        </div>
+                    </div>
+                    <div class="card-body l-case-body">
+                        <div class="l-case-text">
+                            <p class="l-quote">“I typed 200 W because it sounded athletic. My recordings say 123.”</p>
+                            <ol class="l-list">
+                                <li>Load a few rides.</li>
+                                <li>Press <strong>Use ride averages</strong> in the calibration card.</li>
+                                <li>The Tuner redoes every mode with the cadence and power you really ride at.</li>
+                            </ol>
+                            <p class="l-result"><strong>Result:</strong> levels that match your legs, not your ego. Nobody else sees the number. Promise.</p>
+                        </div>
+                        <div class="l-preview" aria-label="Example: ride averages">
+                            <div class="card l-mock">
+                                <div class="card-body">
+                                    <div class="kv-row"><span class="kv-label">Your real averages</span><span class="kv-value">75 RPM · 123 W <span class="kv-hint">while pedalling</span></span></div>
+                                    <span class="btn btn-primary btn-block l-fake-btn" aria-hidden="true">Use ride averages — 75 RPM · 123 W</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </article>
+
+            </div>
+        </section>
+
+        <!-- ============================ How much to trust =========================== -->
+        <section class="l-section" aria-labelledby="trust">
+            <h2 class="l-h2" id="trust">How much to trust it</h2>
+            <p class="l-sub">We'd rather tell you than have the battery tell you.</p>
+            <div class="l-grid-3">
+                <div class="kb-tile">
+                    <h4>Measured</h4>
+                    <p>Your rides' consumption, the drive efficiency from the battery drop, distance from the bike's odometer.</p>
+                </div>
+                <div class="kb-tile">
+                    <h4>Estimated</h4>
+                    <p>Ranges, runtimes and route energy — always with a margin. Uncalibrated, expect ±15–35%. A mode you never recorded is a projection.</p>
+                </div>
+                <div class="kb-tile">
+                    <h4>Not its job</h4>
+                    <p>It doesn't talk to the bike: you type the numbers in the DJI app. M1 is not supported. And it can't do the pedalling. Yet.</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- ================================= FAQ ================================ -->
+        <section class="l-section" aria-labelledby="faq">
+            <h2 class="l-h2" id="faq">FAQ</h2>
+            <div class="l-faq">
+                <details class="card l-qa">
+                    <summary>Where do I find the <code class="code-inline">.proto</code> recordings?</summary>
+                    <p>On Android, in <code class="code-inline">Android/data/com.avinox.ride/files/ebike/data/</code> — a folder file managers hide. Copy it over USB, or with the <code class="code-inline">adb pull</code> command the app gives you. The <code class="code-inline">.gpx</code> export of the Avinox app works too, as a route.</p>
+                </details>
+                <details class="card l-qa">
+                    <summary>Do my files get uploaded?</summary>
+                    <p>No. Routes and recordings are read and kept on your device; only the numbers the maths needs — weights, cadence, distance, climbing, grade shares — go to the calculator, never a file or a GPS track. <strong>Export</strong> saves everything to one file, <strong>Import</strong> brings it to another browser, <strong>Clear all data</strong> forgets it all.</p>
+                </details>
+                <details class="card l-qa">
+                    <summary>Does it work on my phone? Offline?</summary>
+                    <p>On the phone, yes: open it in the browser and press <strong>Install</strong> in the header (on iPhone: Share → Add to Home Screen) and it opens full screen, like an app. Offline, no: the calculations and the maps need a connection. Plan at home, ride in the woods.</p>
+                </details>
+                <details class="card l-qa">
+                    <summary>Why is TURBO so close to TRAIL in kilometres?</summary>
+                    <p>The ground decides how much energy a kilometre takes; the mode decides who supplies it. Once the motor does most of the work, more assist costs little per km — you just push less. The difference shows <strong>per hour</strong>: TURBO climbs faster and empties the battery sooner.</p>
+                </details>
+                <details class="card l-qa">
+                    <summary>Which motors and batteries?</summary>
+                    <p>Avinox M2 and M2S, with the FS600, FP700, FS800, RS600 and RS800 packs. The full 1500 W Boost of the M2S needs the FP700 or the RS800 — the app knows.</p>
+                </details>
+            </div>
+        </section>
+
+        <section class="l-final">
+            <h2 class="l-h2">Ready when you are</h2>
+            <p class="l-sub">Two minutes for the first setup. The hills will still be there.</p>
+            <a class="btn btn-primary" href="/">Open the app</a>
+        </section>
+
+    </main>
+
+    <footer class="l-footer">
+        <p>Avinox Calc · MIT License © 2026 Luca Donnaloia · <a href="https://github.com/lucad87/avinox-setup-app">Source on GitHub</a></p>
+        <p>Independent project, not affiliated with DJI or Avinox. Estimates, not guarantees: ride with a margin.</p>
+    </footer>
+
+    <script src="/welcome.js"></script>
+</body>
+</html>

@@ -6,7 +6,7 @@ potenza/peso (ciclista + bici) e dalla cadenza, e analizza un percorso pianifica
 `.kml`) o una registrazione reale (`.proto`) per dire se la batteria basta, che pendenze e
 salite ha, e come impostare le modalità su misura.
 
-**Live:** https://avinox-calculator.lucad.cloud/
+**Live:** https://avinox-calculator.lucad.cloud/ · **Tour:** https://avinox-calculator.lucad.cloud/welcome
 
 ## Le due schede
 
@@ -109,7 +109,7 @@ costs: it estimates the ECO, AUTO, TRAIL and TURBO parameters from the system po
 (`.proto`) to say whether the battery is enough, what the gradients and climbs are, and which
 modes the terrain calls for.
 
-**Live:** https://avinox-calculator.lucad.cloud/
+**Live:** https://avinox-calculator.lucad.cloud/ · **Tour:** https://avinox-calculator.lucad.cloud/welcome
 
 ## The two tabs
 

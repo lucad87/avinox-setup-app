@@ -1,0 +1,204 @@
+/* ==========================================================================
+   Landing page (/welcome) — layout only.
+   Colours, type, cards, badges, mode cards and the header come from
+   styles.css, so the page follows the app (and its dark theme) by design.
+   ========================================================================== */
+
+.landing .app-header { padding-bottom: 0; }
+/* On mobile the app's header wraps below the logo for the tabs; the landing
+   has no tabs, so it stays on one line. */
+@media (max-width: 767px) {
+    .landing .app-header { flex-wrap: nowrap; padding: .45rem .75rem; }
+    .landing .header-actions { align-self: center; }
+    .landing .theme-toggle { order: 0; }
+}
+
+.l-main {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 2.2rem 1rem 3rem;
+    display: flex;
+    flex-direction: column;
+    gap: 3.2rem;
+}
+
+/* Links styled as buttons: no underline, like the app's <button>s. */
+.landing a.btn { text-decoration: none; }
+
+/* A long path in a <code> must wrap on a narrow phone, not widen the page. */
+.landing .code-inline { overflow-wrap: anywhere; }
+
+/* ------------------------------------------------------------------ Hero */
+
+.l-hero { display: flex; flex-direction: column; gap: .9rem; max-width: 760px; }
+.l-eyebrow {
+    font-size: var(--fs-label);
+    font-weight: 750;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--accent);
+}
+.l-title {
+    font-size: clamp(27px, 5.2vw, 42px);
+    font-weight: 800;
+    line-height: 1.12;
+    letter-spacing: -.015em;
+    color: var(--ink);
+}
+.l-lead { font-size: 16.5px; color: var(--muted); max-width: 640px; }
+.l-lead strong { color: var(--ink); }
+.l-cta { display: flex; flex-wrap: wrap; gap: .6rem; margin-top: .3rem; }
+.l-facts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .45rem;
+    margin: .3rem 0 0;
+    padding: 0;
+    list-style: none;
+}
+.l-facts li {
+    display: inline-flex;
+    align-items: center;
+    gap: .45rem;
+    padding: .3rem .7rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-size: 12.5px;
+    font-weight: 650;
+    color: var(--muted);
+}
+.l-fact-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--brand); flex: 0 0 auto; }
+
+/* -------------------------------------------------------------- Sections */
+
+.l-section { display: flex; flex-direction: column; gap: .9rem; }
+.l-h2 { font-size: 23px; font-weight: 800; letter-spacing: -.01em; color: var(--ink); }
+.l-sub { color: var(--muted); margin-top: -.5rem; }
+.l-h3 { font-size: var(--fs-value); font-weight: 750; color: var(--ink); }
+
+.l-grid-3 { display: grid; grid-template-columns: minmax(0, 1fr); gap: .8rem; }
+@media (min-width: 768px) {
+    .l-grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+.l-feature .card-body { gap: .45rem; }
+.l-feature p { color: var(--muted); }
+
+/* ----------------------------------------------------------------- Steps */
+
+.l-steps {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: .8rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+@media (min-width: 768px) {
+    .l-steps { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+.l-step {
+    display: flex;
+    gap: .75rem;
+    padding: 1rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow);
+}
+.l-step .step-num { flex: 0 0 auto; width: 28px; height: 28px; margin: 0; font-size: 13px; }
+.l-step p { margin-top: .25rem; color: var(--muted); }
+
+/* ------------------------------------------------------------- Use cases */
+
+.l-cases { display: flex; flex-direction: column; gap: 1rem; }
+.l-case .card-title { margin-top: .15rem; }
+.l-case-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; }
+@media (min-width: 900px) {
+    .l-case-body { grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); align-items: start; gap: 1.4rem; }
+}
+.l-case-text { display: flex; flex-direction: column; gap: .7rem; }
+.l-quote {
+    padding-left: .8rem;
+    border-left: 3px solid var(--brand);
+    color: var(--muted);
+    font-style: italic;
+}
+.l-list { margin: 0; padding-left: 1.25rem; display: flex; flex-direction: column; gap: .3rem; }
+.l-result {
+    padding: .6rem .75rem;
+    background: var(--accent-soft);
+    border-radius: var(--r);
+    color: var(--text);
+}
+
+/* The screens: real app components on a dashed "screen" tray. */
+.l-preview {
+    display: flex;
+    flex-direction: column;
+    gap: .6rem;
+    padding: .75rem;
+    background: var(--bg);
+    border: 1px dashed var(--border-strong);
+    border-radius: var(--r-lg);
+}
+.l-mock .card-body { gap: .55rem; }
+.l-mini { padding: .6rem .75rem; box-shadow: none; }
+.l-mini .mode-head { margin-bottom: .25rem; }
+.l-fake-btn { pointer-events: none; cursor: default; }
+
+/* ------------------------------------------------------------------- FAQ */
+
+.l-faq { display: flex; flex-direction: column; gap: .55rem; }
+.l-qa summary {
+    display: flex;
+    align-items: baseline;
+    gap: .55rem;
+    padding: .85rem 1rem;
+    font-weight: 700;
+    color: var(--ink);
+    cursor: pointer;
+    list-style: none;
+}
+.l-qa summary::-webkit-details-marker { display: none; }
+.l-qa summary::before {
+    content: "▸";
+    flex: 0 0 auto;
+    color: var(--accent);
+    transition: transform .15s ease;
+}
+.l-qa[open] summary::before { transform: rotate(90deg); }
+.l-qa p { padding: 0 1rem .95rem 2.1rem; color: var(--muted); }
+
+/* ------------------------------------------------------- Closing, footer */
+
+.l-final {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: .9rem;
+    padding: 1.4rem 1.2rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-top: 3px solid var(--brand);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow);
+}
+.l-final .l-sub { margin-top: -.6rem; }
+
+.l-footer {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 1.2rem 1rem 2rem;
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--faint);
+    display: flex;
+    flex-direction: column;
+    gap: .25rem;
+}
+
+@media (max-width: 767px) {
+    .l-main { padding-top: 1.5rem; gap: 2.4rem; }
+    .l-cta .btn { flex: 1 1 auto; }
+}
