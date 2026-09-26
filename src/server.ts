@@ -1,17 +1,22 @@
 import express, { Request, Response } from 'express';
 import path from 'path';
 import {
+    MODE_KEYS,
     MeasuredRides,
-    PACK_EFFICIENCY_DEFAULT,
+    ModeKey,
+    REFERENCE_CLIMB_M_PER_KM,
+    REFERENCE_SPEED_KMH,
+    REFERENCE_SURFACE,
     SURFACE_FACTORS,
     clamp,
     estimateRouteEnergy,
-    implausibleReason,
+    modeMixFor,
     normaliseDistribution,
     packEfficiencyOf,
     reservePercentOf,
     steepShareOf,
-    surfaceIdOf
+    surfaceIdOf,
+    tunerRanges
 } from './energy-model';
 
 export const app = express();
@@ -167,8 +172,6 @@ function findNearestAssistLevel(targetRatio: number, minLvl: number, maxLvl: num
 
 /* ---------------------------- 3. MODES ----------------------------- */
 
-type ModeKey = 'eco' | 'auto' | 'trail' | 'turbo';
-
 interface ModeBlueprint {
     key: ModeKey;
     label: string;
@@ -233,78 +236,6 @@ function pickNumber(value: unknown, fallback: number): number {
     return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
-// Estimated range/runtime model (unchanged): runtime = battery / motor power,
-// range = runtime x an assumed average speed per mode.
-function calculateMetrics(watts: number, speedKmH: number, batteryWh: number) {
-    const runtimeHours = batteryWh / watts;
-    const rangeKm = runtimeHours * speedKmH;
-    return {
-        runtime: parseFloat(runtimeHours.toFixed(1)),
-        range: parseFloat(rangeKm.toFixed(0))
-    };
-}
-
-/* -------------------- REAL-RIDE CONSUMPTION MODEL ------------------- */
-/* When the client has parsed real rides it sends the measured motor
-   consumption (Wh per km) and the assist level that produced it. The
-   estimate then comes from the real data instead of "cap x hours":
-      pack Wh/km = motor Wh/km / PACK_EFFICIENCY
-      mode Wh/km = pack Wh/km x ratio(modeLevel) / ratio(referenceLevel)
-   extrapolated per level with the amplification table.                 */
-
-/**
- * Projects the measured motor consumption onto a single mode.
- *
- * A recording does not carry the assist level that produced the measurement —
- * only the mode (ECO/AUTO/TRAIL/TURBO) — so the measurement is an average over
- * the modes the rider actually rode. It is projected by the ratio between this
- * mode's motor support and the support averaged over the ride, both in motor
- * watts: the currency the rest of the model uses. The stock modes run through
- * the same path with their own support.
- */
-function realMetrics(
-    modeMotorW: number,
-    mixMotorW: number,
-    realMotorWhPerKm: number,
-    batteryWh: number,
-    speedKmH: number
-): { runtime: number; range: number } | null {
-    if (!(modeMotorW > 0) || !(mixMotorW > 0)) return null;
-    const packWhPerKm = (realMotorWhPerKm / PACK_EFFICIENCY_DEFAULT) * (modeMotorW / mixMotorW);
-    if (!Number.isFinite(packWhPerKm) || packWhPerKm <= 0) return null;
-    return {
-        runtime: parseFloat((batteryWh / (packWhPerKm * speedKmH)).toFixed(1)),
-        range: parseFloat((batteryWh / packWhPerKm).toFixed(0))
-    };
-}
-
-/** Distance ridden in each mode, as sent by the client (0 when unknown). */
-function readModeKm(raw: unknown): Record<ModeKey, number> {
-    const src = (raw ?? {}) as Record<string, unknown>;
-    const out = { eco: 0, auto: 0, trail: 0, turbo: 0 } as Record<ModeKey, number>;
-    (Object.keys(out) as ModeKey[]).forEach((k) => {
-        const v = parseFloat(String(src[k]));
-        out[k] = Number.isFinite(v) && v > 0 ? v : 0;
-    });
-    return out;
-}
-
-/**
- * The motor support averaged over the ride, weighted by the distance ridden in
- * each mode: the support the measured consumption belongs to. Returns 0 when
- * the client could not tell (a calibration stored before this existed) — then
- * the real path is skipped and the generic model is served, instead of
- * rescaling by a reference nobody can justify.
- */
-function modeMixSupport(support: Record<ModeKey, number>, km: Record<ModeKey, number>): number {
-    let totalKm = 0, weighted = 0;
-    (Object.keys(support) as ModeKey[]).forEach((k) => {
-        const w = km[k] ?? 0;
-        if (w > 0 && support[k] > 0) { totalKm += w; weighted += w * support[k]; }
-    });
-    return totalKm > 0 ? weighted / totalKm : 0;
-}
-
 interface ModeResult {
     key: ModeKey;
     label: string;
@@ -327,11 +258,8 @@ interface ModeResult {
     continuedAssist: number;
     maxAccel: number | null;
     amplification: number;
-    range: number;
-    runtime: number;
     achievable: boolean;
     warnings: string[];
-    basedOnRealRides?: boolean;
 }
 
 function buildMode(
@@ -342,9 +270,7 @@ function buildMode(
     pRider: number,
     bike: BikeSpec,
     rpm: number,
-    totalWeight: number,
-    speedKmH: number,
-    batteryWh: number
+    totalWeight: number
 ): ModeResult {
     const warnings: string[] = [];
 
@@ -368,13 +294,10 @@ function buildMode(
     // Expected draw at the rider's typical input: the level's amplification
     // times the rider power, bounded by the configured Max Power and by the
     // physical torque ceiling at the chosen cadence (P = T x rpm / 9.55).
-    // Runtime and range use this expected draw instead of assuming the motor
-    // rides at Max Power continuously.
+    // It sets the mode's motor share, which splits the work in the range model.
     const torqueCeiling = (bike.maxTorque * rpm) / 9.55;
     const levelDraw = ratioOfLevel(assistMax) * pRider;
     const typicalPower = Math.round(Math.min(maxPower, torqueCeiling, levelDraw));
-
-    const metrics = calculateMetrics(typicalPower, speedKmH, batteryWh);
 
     return {
         key: bp.key,
@@ -400,8 +323,6 @@ function buildMode(
         continuedAssist: bp.continued,
         maxAccel: bp.accel,
         amplification: pRider > 0 ? Math.round((maxPower / pRider) * 100) / 100 : 0,
-        range: metrics.range,
-        runtime: metrics.runtime,
         achievable,
         warnings
     };
@@ -442,7 +363,7 @@ app.post('/api/calculate', (req: Request, res: Response) => {
     // Physical power ceiling at the chosen cadence: P = T * rpm / 9.55
     const maxPowerAtCadence = Math.round((bike.maxTorque * rpm) / 9.55);
 
-    const byKey: Record<string, ModeResult> = {};
+    const byKey = {} as Record<ModeKey, ModeResult>;
     const targetWkg: Record<ModeKey, number> = {
         eco: pickNumber(body.ecoWkg, MODES[0].defaultWkg),
         auto: pickNumber(body.autoWkg, MODES[1].defaultWkg),
@@ -456,7 +377,7 @@ app.post('/api/calculate', (req: Request, res: Response) => {
     const ecoBp = blueprint('eco');
     const ecoPower = clamp(round(totalWeight * targetWkg.eco), ecoBp.minPower, bike.maxPower);
     const ecoLevel = findNearestAssistLevel(ecoPower / pRider, ecoBp.band[0], ecoBp.band[1]);
-    byKey.eco = buildMode(ecoBp, ecoLevel, ecoLevel, ecoPower, pRider, bike, rpm, totalWeight, 22, batteryWh);
+    byKey.eco = buildMode(ecoBp, ecoLevel, ecoLevel, ecoPower, pRider, bike, rpm, totalWeight);
 
     // --- Step 2: AUTO (range), floor anchored above ECO --------------
     const autoBp = blueprint('auto');
@@ -473,7 +394,7 @@ app.post('/api/calculate', (req: Request, res: Response) => {
         autoBp.band[0],
         autoMax
     );
-    byKey.auto = buildMode(autoBp, autoMin, autoMax, autoPower, pRider, bike, rpm, totalWeight, 18, batteryWh);
+    byKey.auto = buildMode(autoBp, autoMin, autoMax, autoPower, pRider, bike, rpm, totalWeight);
 
     // --- Step 3: TRAIL (range), floor anchored above AUTO ------------
     const trailBp = blueprint('trail');
@@ -491,7 +412,7 @@ app.post('/api/calculate', (req: Request, res: Response) => {
         trailBp.band[0],
         trailMax
     );
-    byKey.trail = buildMode(trailBp, trailMin, trailMax, trailPower, pRider, bike, rpm, totalWeight, 14, batteryWh);
+    byKey.trail = buildMode(trailBp, trailMin, trailMax, trailPower, pRider, bike, rpm, totalWeight);
 
     // --- Step 4: TURBO (static, fixed level) -------------------------
     const turboBp = blueprint('turbo');
@@ -501,7 +422,7 @@ app.post('/api/calculate', (req: Request, res: Response) => {
         turboBp.band[0],
         turboBp.band[1]
     );
-    byKey.turbo = buildMode(turboBp, turboLevel, turboLevel, turboPower, pRider, bike, rpm, totalWeight, 10, batteryWh);
+    byKey.turbo = buildMode(turboBp, turboLevel, turboLevel, turboPower, pRider, bike, rpm, totalWeight);
 
     // --- Global warnings ---------------------------------------------
     if (byKey.turbo.maxPower > maxPowerAtCadence) {
@@ -528,51 +449,33 @@ app.post('/api/calculate', (req: Request, res: Response) => {
             : 'Full 1500 W Boost requires the FP700 (700 Wh) pack; with the selected battery peak output is lower.';
     }
 
-    // Real-ride calibration (optional): the client sends the measured motor
-    // consumption and the distance ridden in each mode. The measured average
-    // belongs to the mix of modes the rider actually used, so each mode is
-    // projected by its own support relative to that mix.
-    const realWhPerKm = parseFloat(String(body.realWhPerKm));
-    const realModeKm = readModeKm(body.realModeKm);
-    const realReject = Number.isFinite(realWhPerKm)
-        ? implausibleReason(realWhPerKm, null) : null;
-    const modeSupport: Record<ModeKey, number> = {
-        eco: byKey.eco.typicalPower,
-        auto: byKey.auto.typicalPower,
-        trail: byKey.trail.typicalPower,
-        turbo: byKey.turbo.typicalPower
-    };
-    const mixSupport = modeMixSupport(modeSupport, realModeKm);
-    const useReal = Number.isFinite(realWhPerKm) && realWhPerKm > 0
-        && mixSupport > 0 && !realReject;
-
-    if (useReal) {
-        const speeds: Record<ModeKey, number> = { eco: 22, auto: 18, trail: 14, turbo: 10 };
-        (['eco', 'auto', 'trail', 'turbo'] as ModeKey[]).forEach((k) => {
-            const m = realMetrics(modeSupport[k], mixSupport, realWhPerKm, batteryWh, speeds[k]);
-            if (m) {
-                byKey[k].range = m.range;
-                byKey[k].runtime = m.runtime;
-                byKey[k].basedOnRealRides = true;
-            }
-        });
-    }
-
     // Stock DJI modes (reference): expected draw with the same rider model,
     // using each stock mode's level, power cap and torque cap.
-    const stock = STOCK_MODES.map((s) => {
-        const stockTypical = Math.round(Math.min(
-            ratioOfLevel(s.level) * pRider,
-            s.maxPower,
-            (s.maxTorque * rpm) / 9.55
-        ));
-        const speed = { eco: 22, auto: 18, trail: 14, turbo: 10 }[s.key] ?? 15;
-        const m = useReal
-            ? (realMetrics(stockTypical, mixSupport, realWhPerKm, batteryWh, speed)
-                || calculateMetrics(stockTypical, speed, batteryWh))
-            : calculateMetrics(stockTypical, speed, batteryWh);
-        return { key: s.key, label: s.label, typicalPower: stockTypical, runtime: m.runtime, range: m.range };
+    const stockTypical = Object.fromEntries(STOCK_MODES.map((s) => [s.key, Math.round(Math.min(
+        ratioOfLevel(s.level) * pRider,
+        s.maxPower,
+        (s.maxTorque * rpm) / 9.55
+    ))])) as Record<ModeKey, number>;
+
+    // Range and runtime: the route model on its reference terrain, scaled by
+    // the measured consumption when the client sends one.
+    const ranges = tunerRanges({
+        totalWeight,
+        batteryWh,
+        riderW: pRider,
+        modeMotorW: Object.fromEntries(MODE_KEYS.map((k) => [k, byKey[k].typicalPower])) as Record<ModeKey, number>,
+        stockMotorW: stockTypical,
+        real: readMeasuredRides(body)
     });
+    const basedOnRealRides = ranges.personal.applied;
+    const modes = Object.fromEntries(MODE_KEYS.map((k) =>
+        [k, { ...byKey[k], ...ranges.modes[k], basedOnRealRides }]));
+    const stock = STOCK_MODES.map((s) => ({
+        key: s.key,
+        label: s.label,
+        typicalPower: stockTypical[s.key as ModeKey],
+        ...ranges.stock[s.key as ModeKey]
+    }));
 
     return res.json({
         bike,
@@ -595,13 +498,18 @@ app.post('/api/calculate', (req: Request, res: Response) => {
             fullPowerAvailable: bike.id !== 'M2S' || batteryWh === 700,
             note: boostNote
         },
-        eco: byKey.eco,
-        auto: byKey.auto,
-        trail: byKey.trail,
-        turbo: byKey.turbo,
+        ...modes,
         stock,
-        basedOnRealRides: useReal,
-        calibrationMixWatts: useReal ? Math.round(mixSupport) : null,
+        rangeModel: {
+            referenceClimbMPerKm: REFERENCE_CLIMB_M_PER_KM,
+            referenceSurface: REFERENCE_SURFACE,
+            referenceSpeedKmH: REFERENCE_SPEED_KMH,
+            referenceWhPerKm: Math.round(ranges.referenceWhPerKm * 10) / 10
+        },
+        basedOnRealRides,
+        personalFactor: Math.round(ranges.personal.factor * 100) / 100,
+        factorRaw: ranges.personal.raw == null ? null : Math.round(ranges.personal.raw * 100) / 100,
+        factorRejected: ranges.personal.rejected,
         warnings: globalWarnings
     });
 });
@@ -679,12 +587,12 @@ app.post('/api/calculate-mission', (req: Request, res: Response) => {
 
     // Altitude share and profile usage planning (pie chart logic)
     const climbRatio = energyClimb / (energyFlat + energyClimb || 1);
-    const flatRatio = 1 - climbRatio;
 
-    let ecoPercent = (40 * flatRatio) + (15 * climbRatio);
-    let autoPercent = (50 * flatRatio) + (45 * climbRatio);
-    let trailPercent = (10 * flatRatio) + (32 * climbRatio);
-    let turboPercent = (0 * flatRatio) + (8 * climbRatio);
+    const mix = modeMixFor(climbRatio);
+    let ecoPercent = 100 * mix.eco;
+    let autoPercent = 100 * mix.auto;
+    let trailPercent = 100 * mix.trail;
+    let turboPercent = 100 * mix.turbo;
 
     if (!feasible) {
         // On a critical loop, cut Turbo and Trail hard to force ECO/AUTO usage.
