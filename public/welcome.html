@@ -5,6 +5,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Avinox Calc — what it does and how to use it</title>
     <meta name="description" content="Assist mode setup and battery planning for DJI Avinox M2 and M2S e-bikes. Your files stay on your device.">
+    <link rel="canonical" href="https://avinox-calculator.lucad.cloud/welcome">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="Avinox Calc">
+    <meta property="og:title" content="Avinox Calc — tune the motor, plan the ride">
+    <meta property="og:description" content="Three numbers per mode for your DJI Avinox M2/M2S, and an honest answer to “will the battery make it?”. Free; your files stay on your device.">
+    <meta property="og:url" content="https://avinox-calculator.lucad.cloud/welcome">
+    <meta property="og:image" content="https://avinox-calculator.lucad.cloud/assets/og-welcome.png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:image:alt" content="Avinox Calc: tune the motor, plan the ride, stop guessing the battery.">
+    <meta name="twitter:card" content="summary_large_image">
     <link rel="icon" href="/favicon.ico" sizes="any">
     <link rel="icon" type="image/png" sizes="64x64" href="/assets/favicon-64.png">
     <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-32.png">
@@ -124,7 +135,7 @@
             <div class="l-cases">
 
                 <!-- 1 · Tuner -->
-                <article class="card l-case">
+                <article class="card l-case" id="case-tuner">
                     <div class="card-header">
                         <div>
                             <span class="kb-tag">Use case 1 · Tuner</span>
@@ -163,7 +174,7 @@
                 </article>
 
                 <!-- 2 · Route -->
-                <article class="card l-case">
+                <article class="card l-case" id="case-route">
                     <div class="card-header">
                         <div>
                             <span class="kb-tag">Use case 2 · Route</span>
@@ -210,7 +221,7 @@
                 </article>
 
                 <!-- 3 · Rides -->
-                <article class="card l-case">
+                <article class="card l-case" id="case-rides">
                     <div class="card-header">
                         <div>
                             <span class="kb-tag">Use case 3 · Rides</span>
@@ -243,7 +254,7 @@
                 </article>
 
                 <!-- 4 · Ride averages -->
-                <article class="card l-case">
+                <article class="card l-case" id="case-averages">
                     <div class="card-header">
                         <div>
                             <span class="kb-tag">Use case 4 · Tuner + Rides</span>
@@ -298,23 +309,23 @@
         <section class="l-section" aria-labelledby="faq">
             <h2 class="l-h2" id="faq">FAQ</h2>
             <div class="l-faq">
-                <details class="card l-qa">
+                <details class="card l-qa" id="faq-proto">
                     <summary>Where do I find the <code class="code-inline">.proto</code> recordings?</summary>
                     <p>On Android, in <code class="code-inline">Android/data/com.avinox.ride/files/ebike/data/</code> — a folder file managers hide. Copy it over USB, or with the <code class="code-inline">adb pull</code> command the app gives you. The <code class="code-inline">.gpx</code> export of the Avinox app works too, as a route.</p>
                 </details>
-                <details class="card l-qa">
+                <details class="card l-qa" id="faq-upload">
                     <summary>Do my files get uploaded?</summary>
                     <p>No. Routes and recordings are read and kept on your device; only the numbers the maths needs — weights, cadence, distance, climbing, grade shares — go to the calculator, never a file or a GPS track. <strong>Export</strong> saves everything to one file, <strong>Import</strong> brings it to another browser, <strong>Clear all data</strong> forgets it all.</p>
                 </details>
-                <details class="card l-qa">
+                <details class="card l-qa" id="faq-offline">
                     <summary>Does it work on my phone? Offline?</summary>
                     <p>On the phone, yes: open it in the browser and press <strong>Install</strong> in the header (on iPhone: Share → Add to Home Screen) and it opens full screen, like an app. Offline, no: the calculations and the maps need a connection. Plan at home, ride in the woods.</p>
                 </details>
-                <details class="card l-qa">
+                <details class="card l-qa" id="faq-turbo">
                     <summary>Why is TURBO so close to TRAIL in kilometres?</summary>
                     <p>The ground decides how much energy a kilometre takes; the mode decides who supplies it. Once the motor does most of the work, more assist costs little per km — you just push less. The difference shows <strong>per hour</strong>: TURBO climbs faster and empties the battery sooner.</p>
                 </details>
-                <details class="card l-qa">
+                <details class="card l-qa" id="faq-hardware">
                     <summary>Which motors and batteries?</summary>
                     <p>Avinox M2 and M2S, with the FS600, FP700, FS800, RS600 and RS800 packs. The full 1500 W Boost of the M2S needs the FP700 or the RS800 — the app knows.</p>
                 </details>
