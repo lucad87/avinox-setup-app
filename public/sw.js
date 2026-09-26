@@ -1,7 +1,10 @@
 /* Avinox Calc service worker — network-first with cache fallback.
    Network-first keeps deploys fresh; the cache only serves when the
-   network is unavailable (offline app shell). */
-const CACHE = 'avinox-calc-v2';
+   network is unavailable (offline app shell).
+   Bump CACHE whenever the shell changes: it is what purges the previous
+   copy on the next activation, so a device that was left on an older
+   deploy cannot keep serving it. */
+const CACHE = 'avinox-calc-v3';
 const ASSETS = [
     '/',
     '/index.html',
