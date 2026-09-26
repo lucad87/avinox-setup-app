@@ -494,6 +494,7 @@
                                         <span class="kv-label">Colour route by</span>
                                         <select id="mapChannel" class="select">
                                             <option value="speed" selected>Speed</option>
+                                            <option value="assist">Assist mode</option>
                                             <option value="altitude">Altitude</option>
                                             <option value="gradient">Gradient</option>
                                             <option value="riderPower">Rider power</option>
@@ -703,7 +704,7 @@
                                 The Tuner then projects each mode from that real consumption, and it does so with the <strong>mix of modes you actually rode</strong>: the distance covered in each mode is the weight, and a mode is scaled by its own support relative to that mix. The projection therefore reproduces your measured consumption for the riding you did, and extrapolates to the modes you did not use. A recording does not carry the assist level you had set, so no level is involved. Loading a recording also puts it straight into the route analysis: pick it in step 1 and it becomes the analyzed route.
                             </p>
                             <p class="hint">
-                                Curiosities worth knowing: the consumption is taken as motor Wh per km of riding (coasting included), while the per-mode table shows averages only over the samples where you were actually pedalling — that is why the "riding" figures are higher than the "total" ones. A recording carries the assist <strong>mode</strong> (ECO / AUTO / TRAIL / TURBO), not the level you had set, so the table groups by mode and the other states the bike also logs (boost, walk, off) stay out of the model comparison.
+                                Curiosities worth knowing: the measured consumption counts <strong>all</strong> the motor energy over the kilometres ridden, coasting and the states the app does not model included, because that is what came out of the battery. A recording carries the assist <strong>mode</strong> (ECO / AUTO / TRAIL / TURBO), not the level you had set, so the per-mode table groups by mode and shows the rest — boost, walk, off — as <em>other</em>; on the map, pick <strong>Assist mode</strong> to see where those stretches are. The per-mode projection is anchored to the assist-mode consumption over the kilometres ridden in those modes, so it reproduces your measurement for the riding you did; the <em>other</em> kilometres count in the overall consumption but not in that mix. The per-mode table also averages only over the samples where you were actually pedalling, which is why the "riding" figures are higher than the "total" ones. A load with no usable measurement at all — the motor really did nothing — is left out of the calibration and named in the card.
                             </p>
                         </div>
                     </section>

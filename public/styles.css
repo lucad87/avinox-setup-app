@@ -36,6 +36,9 @@
     --mode-trail: #B26800;
     --mode-turbo: #AE3124;
     --mode-custom: #5C4290;   /* BOOST e custom route modes */
+    /* Stati che il file registra ma il modello non conosce (boost/walk/off):
+       scuro, perche' sulla mappa deve staccarsi dalle strade. */
+    --mode-other: #4A4440;
 
     /* forma */
     --r-sm: 7px;  --r: 10px;  --r-lg: 13px;
