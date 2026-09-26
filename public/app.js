@@ -819,8 +819,11 @@ function fitRouteMapBounds() {
 }
 
 /* Draw (or redraw) the planned route on its map. Only called for route
-   files: a recording has its own map with the channel selector. */
-function renderRouteMap(points) {
+   files: a recording has its own map with the channel selector.
+   `refit` re-frames the view: only when the ROUTE changed, not when the same
+   route is re-analysed (a Tuner tweak must not throw away a pan/zoom). */
+function renderRouteMap(points, opts) {
+    const refit = !!(opts && opts.refit);
     const panel = document.getElementById('routeMapPanel');
     const el = document.getElementById('routeMap');
     if (!panel || !el || typeof maplibregl === 'undefined' || typeof AvinoxRoute === 'undefined') return;
@@ -924,7 +927,7 @@ function renderRouteMap(points) {
         if (endsSrc) endsSrc.setData(ends);
         const cursorSrc = routeMap.getSource('route-cursor');
         if (cursorSrc) cursorSrc.setData(emptyFeature());
-        fitRouteMapBounds();
+        if (refit) fitRouteMapBounds();
     }
 
     /* A new track means the old cursor position is meaningless. */
@@ -1959,7 +1962,9 @@ function renderCalibrationReport(analysis) {
             cadenceEl.value = s.avgCadence;
             powerEl.value = s.avgRiderPower;
             saveForm();
-            updateSetup();
+            /* Same path as a manual change: the Tuner recalculates and the
+               Route analysis follows. */
+            scheduleFromTuner();
             /* The values went into the Tuner: take the user there and show
                which fields they landed in, or the click looks like nothing
                happened (the Tuner is another tab). */
@@ -2500,7 +2505,7 @@ function applyRouteSelection() {
     renderFileSummary();
     renderElevationChart(chosen);
     renderRouteAnalysis();
-    renderRouteMap(routePoints);
+    renderRouteMap(routePoints, { refit: true });
     /* Last: the summary reads the parameters, which renderFileSummary fills
        from the file. */
     updateRouteLoadState();
@@ -2964,6 +2969,7 @@ window.addEventListener('DOMContentLoaded', () => {
     initTunerCalibrationCta();
     initDataTransfer();
     initPresetState();
+    initTunerLiveInputs();
     /* Bring back what was loaded last time (IndexedDB), quietly: same load
        path, no notice, no "rides analyzed" dialog. */
     restoreStoredFiles().then(() => updateRouteLoadState());
@@ -3174,7 +3180,7 @@ function initResetDefaults() {
     btn.addEventListener('click', () => {
         applyFormDefaults();
         saveForm();
-        updateSetup();
+        scheduleFromTuner();
     });
 }
 
@@ -3711,6 +3717,37 @@ function resetEnergyCard() {
     ['energyBreakdown', 'modeBar', 'modeChips'].forEach((id) => {
         const el = document.getElementById(id);
         if (el) el.innerHTML = '';
+    });
+}
+
+/* The Route analysis reads the Tuner's rider variables (bike, battery, weights,
+   cadence, rider power - the per-mode W/kg sliders stay the Tuner's own thing),
+   so a change there has to refresh it: leaving the Route page showing numbers
+   computed with the previous rider is exactly the silent staleness this app
+   keeps getting caught on. The W/kg sliders already recalculated the Tuner on
+   every move; the rider fields did not recalculate anything, which is why the
+   two pages could disagree.
+   Debounced: the fields fire per keystroke. */
+let tunerInputTimer = null;
+
+function scheduleFromTuner() {
+    if (tunerInputTimer) clearTimeout(tunerInputTimer);
+    tunerInputTimer = setTimeout(() => {
+        tunerInputTimer = null;
+        if (typeof updateSetup === 'function') updateSetup();
+        const results = document.getElementById('missionResults');
+        if (!results || results.classList.contains('hidden')) return;
+        document.getElementById('missionForm')
+            .dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+    }, 400);
+}
+
+function initTunerLiveInputs() {
+    ['bike', 'batteryWh', 'riderWeight', 'bikeWeight', 'cadence', 'riderPower'].forEach((id) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.addEventListener('input', scheduleFromTuner);
+        el.addEventListener('change', scheduleFromTuner);
     });
 }
 
