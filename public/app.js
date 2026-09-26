@@ -2834,6 +2834,7 @@ function renderRouteAnalysis() {
     const block = document.getElementById('routeAnalysis');
     const bars = document.getElementById('gradeBars');
     const climbs = document.getElementById('climbList');
+    const descents = document.getElementById('descentList');
 
     if (!routeGrades || !routeGrades.ok) {
         block.classList.add('hidden');
@@ -2857,17 +2858,79 @@ function renderRouteAnalysis() {
                     </div>`;
             }).join('');
 
-            const cs = routeGrades.climbSummary;
-            climbs.innerHTML = cs.count
-                ? `<p class="hint">${cs.count} climb(s) · median grade ${cs.medianGrade.toFixed(1)}% ·
-                   longest ${cs.longestKm.toFixed(1)} km · peak ${routeGrades.maxGrade.toFixed(1)}%</p>`
-                : '<p class="hint">No sustained climbs detected.</p>';
+            /* Climbs and descents share one compact table shape. The row
+               number carries the band colour of that row's average grade:
+               the same bands and colours as the bars above, so nothing here
+               invents a palette. */
+            const cs = routeGrades.climbSummary || {};
+            const climbEntries = Array.isArray(routeGrades.climbs) ? routeGrades.climbs : [];
+            const descentEntries = Array.isArray(routeGrades.descents) ? routeGrades.descents : [];
+            const descentSummary = routeGrades.descentSummary || null;
+            /* A route-file.js without descents shows nothing about them,
+               rather than an empty table that claims there were none. */
+            const hasDescents = Array.isArray(routeGrades.descents) && !!routeGrades.descentSummary;
+            const climbCount = Number.isFinite(cs.count) ? cs.count : climbEntries.length;
+            const descentCount = hasDescents
+                ? (Number.isFinite(descentSummary.count) ? descentSummary.count : descentEntries.length)
+                : 0;
+            const peakText = Number.isFinite(routeGrades.maxGrade)
+                ? routeGrades.maxGrade.toFixed(1) + '%' : '—';
+
+            const bandColor = (grade) => {
+                const key = (typeof AvinoxRoute !== 'undefined' && typeof AvinoxRoute.bandForGrade === 'function')
+                    ? AvinoxRoute.bandForGrade(grade)
+                    : 'flat';
+                return colors[key] || colors.flat;
+            };
+            const numberCell = (n, grade) => {
+                const c = bandColor(grade);
+                return '<td style="color:' + c + ';font-weight:700;border-left:3px solid ' + c + '">'
+                    + escapeHtml(n) + '</td>';
+            };
+            const fixed = (v, digits) => (Number.isFinite(v) ? v : 0).toFixed(digits);
+
+            const climbRows = climbEntries.map((c) => {
+                const grade = Number.isFinite(c.averageGrade) ? c.averageGrade : 0;
+                return '<tr>'
+                    + numberCell(c.index, grade)
+                    + '<td>' + fixed(grade, 1) + '%</td>'
+                    + '<td>+' + Math.round(Number.isFinite(c.gainM) ? c.gainM : 0) + ' m</td>'
+                    + '<td>' + fixed(c.distanceKm, 1) + ' km</td>'
+                    + '</tr>';
+            }).join('');
+            const descentRows = descentEntries.map((r) => {
+                const grade = Number.isFinite(r.averageGrade) ? r.averageGrade : 0;
+                return '<tr>'
+                    + numberCell(r.index, grade)
+                    + '<td>−' + Math.abs(grade).toFixed(1) + '%</td>'
+                    + '<td>−' + Math.round(Number.isFinite(r.lossM) ? r.lossM : 0) + ' m</td>'
+                    + '<td>' + fixed(r.distanceKm, 1) + ' km</td>'
+                    + '</tr>';
+            }).join('');
+
+            const summary = climbCount + (climbCount === 1 ? ' climb' : ' climbs')
+                + (hasDescents ? ' · ' + descentCount + (descentCount === 1 ? ' descent' : ' descents') : '')
+                + ' · peak ' + peakText;
+
+            climbs.innerHTML = '<p class="hint">' + summary + '</p>'
+                + (climbRows
+                    ? '<div class="kb-table-wrap"><table class="kb-table"><thead><tr>'
+                        + '<th>Climb</th><th>Avg</th><th>Gain</th><th>Length</th>'
+                        + '</tr></thead><tbody>' + climbRows + '</tbody></table></div>'
+                    : '<p class="hint">No sustained climbs detected.</p>');
+
+            if (descents) {
+                descents.innerHTML = !hasDescents ? ''
+                    : (descentRows
+                        ? '<div class="kb-table-wrap"><table class="kb-table"><thead><tr>'
+                            + '<th>Descent</th><th>Avg</th><th>Loss</th><th>Length</th>'
+                            + '</tr></thead><tbody>' + descentRows + '</tbody></table></div>'
+                        : '<p class="hint">No sustained descents detected.</p>');
+            }
 
             const analysisState = document.getElementById('routeAnalysisState');
             if (analysisState) {
-                analysisState.innerText = cs.count
-                    ? cs.count + (cs.count === 1 ? ' climb' : ' climbs') + ' · peak ' + routeGrades.maxGrade.toFixed(1) + '%'
-                    : 'no sustained climbs';
+                analysisState.innerText = summary;
             }
 }
 
@@ -3026,8 +3089,100 @@ function renderElevationChart(chosen) {
             if (elevationChartInstance) elevationChartInstance.destroy();
             const theme = chartTheme();
 
+            /* Gradient at each plotted point, for the tooltip. It comes from
+               the same 25 m-window profile that colours the map; the lookup
+               is built once here, never inside the tooltip callback. */
+            let gradeLookup = [];
+            if (typeof AvinoxRoute !== 'undefined' && typeof AvinoxRoute.computeGradeProfile === 'function'
+                && Array.isArray(routePoints) && routePoints.length) {
+                const profile = AvinoxRoute.computeGradeProfile(routePoints);
+                if (profile && profile.ok && Array.isArray(profile.points)) {
+                    gradeLookup = profile.points
+                        .filter((p) => Number.isFinite(p.grade) && p.distanceM > 0)
+                        .map((p) => ({ km: p.distanceM / 1000, grade: p.grade }))
+                        .sort((a, b) => a.km - b.km);
+                }
+            }
+            const nearestGrade = (km) => {
+                if (!gradeLookup.length) return null;
+                let lo = 0;
+                let hi = gradeLookup.length - 1;
+                while (lo < hi) {
+                    const mid = (lo + hi) >> 1;
+                    if (gradeLookup[mid].km < km) lo = mid + 1; else hi = mid;
+                }
+                const a = gradeLookup[Math.max(0, lo - 1)];
+                const b = gradeLookup[lo];
+                if (!a) return b.grade;
+                if (!b) return a.grade;
+                return Math.abs(b.km - km) < Math.abs(a.km - km) ? b.grade : a.grade;
+            };
+            const pointGrades = points.map((p) => nearestGrade(p.x));
+
+            /* Climb/descent start-end markers. An inline plugin: it is passed
+               to THIS chart only (a global registration would draw the same
+               markers on every other chart). It reads the live x scale, so
+               it stays correct if the chart is ever zoomed or panned. */
+            const markers = [];
+            const markerBand = (grade) => (typeof AvinoxRoute !== 'undefined' && typeof AvinoxRoute.bandForGrade === 'function')
+                ? AvinoxRoute.bandForGrade(grade)
+                : 'flat';
+            const addMarkers = (list, kind) => {
+                if (!Array.isArray(list)) return;
+                list.forEach((entry) => {
+                    const grade = Number.isFinite(entry.averageGrade) ? entry.averageGrade : 0;
+                    const label = (kind === 'climb' ? 'C' : 'D') + entry.index;
+                    const color = gradeBandColor(markerBand(grade));
+                    [entry.startKm, entry.endKm].forEach((km) => {
+                        if (Number.isFinite(km)) markers.push({ km: km, label: label, color: color });
+                    });
+                });
+            };
+            if (routeGrades && routeGrades.ok) {
+                addMarkers(routeGrades.climbs, 'climb');
+                addMarkers(routeGrades.descents, 'descent');
+            }
+            const markerPlugin = {
+                id: 'routeMarkers',
+                afterDatasetsDraw: (chart) => {
+                    const area = chart.chartArea;
+                    const xs = chart.scales && chart.scales.x;
+                    if (!area || !xs || !markers.length) return;
+                    const pctx = chart.ctx;
+                    const fontFamily = getComputedStyle(document.body).fontFamily || 'sans-serif';
+                    pctx.save();
+                    let lastPx = -Infinity;
+                    let row = 0;
+                    markers.forEach((m) => {
+                        const px = xs.getPixelForValue(m.km);
+                        if (!Number.isFinite(px) || px < area.left || px > area.right) return;
+                        pctx.globalAlpha = 0.8;
+                        pctx.strokeStyle = m.color;
+                        pctx.lineWidth = 1;
+                        pctx.beginPath();
+                        pctx.moveTo(px, area.top);
+                        pctx.lineTo(px, area.bottom);
+                        pctx.stroke();
+                        pctx.globalAlpha = 1;
+                        /* Near-coincident markers (a climb end and the next
+                           descent start) stagger downward instead of
+                           overprinting each other. */
+                        row = px - lastPx < 26 ? (row + 1) % 3 : 0;
+                        lastPx = px;
+                        const flip = px > area.right - 22;
+                        pctx.font = '600 9px ' + fontFamily;
+                        pctx.textAlign = flip ? 'right' : 'left';
+                        pctx.textBaseline = 'top';
+                        pctx.fillStyle = m.color;
+                        pctx.fillText(m.label, px + (flip ? -3 : 3), area.top + 2 + row * 10);
+                    });
+                    pctx.restore();
+                }
+            };
+
             elevationChartInstance = new Chart(ctx, {
                 type: 'line',
+                plugins: [markerPlugin],
                 data: {
                     datasets: [{
                         data: points,
@@ -3048,7 +3203,12 @@ function renderElevationChart(chosen) {
                 tooltip: {
                     callbacks: {
                         title: (items) => items[0].parsed.x.toFixed(2) + ' km',
-                        label: (item) => Math.round(item.parsed.y) + ' m'
+                        label: (item) => {
+                            const g = pointGrades[item.dataIndex];
+                            if (!Number.isFinite(g)) return Math.round(item.parsed.y) + ' m';
+                            const sign = g < -0.05 ? '−' : '';
+                            return Math.round(item.parsed.y) + ' m · ~' + sign + Math.abs(g).toFixed(1) + '%';
+                        }
                     }
                 }
             },
@@ -3558,7 +3718,7 @@ function resetApp() {
     const verdict = document.getElementById('energyVerdict');
     if (verdict) { verdict.innerText = '--'; verdict.className = 'badge badge-soft'; }
     resetEnergyCard();
-    ['gradeBars', 'climbList', 'routeModesGrid', 'routeModeNotes'].forEach((id) => {
+    ['gradeBars', 'climbList', 'descentList', 'routeModesGrid', 'routeModeNotes'].forEach((id) => {
         const el = document.getElementById(id);
         if (el) el.innerHTML = '';
     });

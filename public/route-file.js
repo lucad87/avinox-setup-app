@@ -314,20 +314,38 @@
             distanceM: current.distanceM,
             gainM: current.gainM,
             averageGrade: current.distanceM > 0 ? (current.gainM / current.distanceM) * 100 : 0,
-            maxGrade: current.maxGrade
+            maxGrade: current.extremeGrade,
+            startKm: current.startKm,
+            endKm: current.endKm,
+            startEle: current.startEle,
+            endEle: current.endEle
         };
     }
 
-    /**
-     * Groups climbing samples into named climbs. A flatter stretch shorter
-     * than CLIMB_MAX_BREAK_M is held back: if the climb resumes it becomes
-     * part of it, otherwise the climb ends where the climbing did.
-     */
-    function detectClimbs(samples) {
+    /* Mirrors finaliseClimb: lossM is positive, averageGrade and steepestGrade
+       keep the sign of the descent. */
+    function finaliseDescent(current) {
+        return {
+            distanceM: current.distanceM,
+            lossM: -current.gainM,
+            averageGrade: current.distanceM > 0 ? (current.gainM / current.distanceM) * 100 : 0,
+            steepestGrade: current.extremeGrade,
+            startKm: current.startKm,
+            endKm: current.endKm,
+            startEle: current.startEle,
+            endEle: current.endEle
+        };
+    }
+
+    function collectSections(samples, direction) {
         var found = [];
         var current = null;
         var held = [];
         var heldM = 0;
+
+        var qualifies = direction > 0
+            ? function (s) { return s.grade >= CLIMB_MIN_GRADE; }
+            : function (s) { return s.grade <= -CLIMB_MIN_GRADE; };
 
         var absorbHeld = function () {
             held.forEach(function (h) {
@@ -338,22 +356,34 @@
             heldM = 0;
         };
         var closeCurrent = function () {
-            found.push(finaliseClimb(current));
+            found.push(current);
             current = null;
             held = [];
             heldM = 0;
         };
 
         samples.forEach(function (s) {
-            if (s.grade >= CLIMB_MIN_GRADE) {
+            if (qualifies(s)) {
                 if (current) {
                     absorbHeld();
                 } else {
-                    current = { distanceM: 0, gainM: 0, maxGrade: s.grade };
+                    current = {
+                        distanceM: 0,
+                        gainM: 0,
+                        extremeGrade: s.grade,
+                        startKm: s.startKm,
+                        startEle: s.startEle,
+                        endKm: s.endKm,
+                        endEle: s.endEle
+                    };
                 }
                 current.distanceM += s.distanceM;
                 current.gainM += s.gainM;
-                current.maxGrade = Math.max(current.maxGrade, s.grade);
+                current.endKm = s.endKm;
+                current.endEle = s.endEle;
+                current.extremeGrade = direction > 0
+                    ? Math.max(current.extremeGrade, s.grade)
+                    : Math.min(current.extremeGrade, s.grade);
             } else if (current) {
                 held.push(s);
                 heldM += s.distanceM;
@@ -362,19 +392,64 @@
         });
         if (current) closeCurrent();
 
-        return found
+        return found;
+    }
+
+    /**
+     * Groups climbing samples into named climbs. A flatter stretch shorter
+     * than CLIMB_MAX_BREAK_M is held back: if the climb resumes it becomes
+     * part of it, otherwise the climb ends where the climbing did.
+     */
+    function detectClimbs(samples) {
+        return collectSections(samples, 1)
             .filter(function (c) {
                 return c.gainM >= CLIMB_MIN_GAIN_M && c.distanceM >= CLIMB_MIN_LENGTH_M;
             })
             .map(function (c, i) {
+                var climb = finaliseClimb(c);
                 return {
                     index: i + 1,
-                    distanceKm: c.distanceM / 1000,
-                    gainM: c.gainM,
-                    averageGrade: c.averageGrade,
-                    maxGrade: c.maxGrade
+                    distanceKm: climb.distanceM / 1000,
+                    gainM: climb.gainM,
+                    averageGrade: climb.averageGrade,
+                    maxGrade: climb.maxGrade,
+                    startKm: climb.startKm,
+                    endKm: climb.endKm,
+                    startEle: climb.startEle,
+                    endEle: climb.endEle
                 };
             });
+    }
+
+    /** Descents are detected by the same rules, mirrored on negative grade. */
+    function detectDescents(samples) {
+        return collectSections(samples, -1)
+            .filter(function (d) {
+                return -d.gainM >= CLIMB_MIN_GAIN_M && d.distanceM >= CLIMB_MIN_LENGTH_M;
+            })
+            .map(function (d, i) {
+                var descent = finaliseDescent(d);
+                return {
+                    index: i + 1,
+                    distanceKm: descent.distanceM / 1000,
+                    lossM: descent.lossM,
+                    averageGrade: descent.averageGrade,
+                    steepestGrade: descent.steepestGrade,
+                    startKm: descent.startKm,
+                    endKm: descent.endKm,
+                    startEle: descent.startEle,
+                    endEle: descent.endEle
+                };
+            });
+    }
+
+    function medianGradeOf(sections) {
+        var grades = sections.map(function (s) { return s.averageGrade; })
+            .sort(function (a, b) { return a - b; });
+        if (grades.length === 0) return 0;
+        return grades.length % 2
+            ? grades[(grades.length - 1) / 2]
+            : (grades[grades.length / 2 - 1] + grades[grades.length / 2]) / 2;
     }
 
     /**
@@ -420,6 +495,8 @@
         var samples = [];
         var accDistance = 0;
         var startEle = null;
+        var coveredM = 0;
+        var windowStartM = 0;
 
         for (var i = 1; i < points.length; i++) {
             var a = points[i - 1];
@@ -436,7 +513,10 @@
             var d = haversine(a, b);
             if (d <= 0) continue;
 
-            if (startEle === null) startEle = a.ele;
+            if (startEle === null) {
+                startEle = a.ele;
+                windowStartM = coveredM;
+            }
             accDistance += d;
 
             if (accDistance >= GRADE_WINDOW_M) {
@@ -444,10 +524,16 @@
                 samples.push({
                     grade: (delta / accDistance) * 100,
                     distanceM: accDistance,
-                    gainM: delta
+                    gainM: delta,
+                    startKm: windowStartM / 1000,
+                    endKm: (windowStartM + accDistance) / 1000,
+                    startEle: startEle,
+                    endEle: b.ele
                 });
+                coveredM += accDistance;
                 accDistance = 0;
                 startEle = b.ele;
+                windowStartM = coveredM;
             }
         }
 
@@ -458,7 +544,11 @@
             samples.push({
                 grade: (tailDelta / accDistance) * 100,
                 distanceM: accDistance,
-                gainM: tailDelta
+                gainM: tailDelta,
+                startKm: windowStartM / 1000,
+                endKm: (windowStartM + accDistance) / 1000,
+                startEle: startEle,
+                endEle: last.ele
             });
         }
 
@@ -475,12 +565,7 @@
         });
 
         var climbs = detectClimbs(samples);
-        var grades = climbs.map(function (c) { return c.averageGrade; }).sort(function (a, b) { return a - b; });
-        var medianGrade = grades.length
-            ? (grades.length % 2
-                ? grades[(grades.length - 1) / 2]
-                : (grades[grades.length / 2 - 1] + grades[grades.length / 2]) / 2)
-            : 0;
+        var descents = detectDescents(samples);
 
         return {
             ok: true,
@@ -492,10 +577,17 @@
             climbs: climbs,
             climbSummary: {
                 count: climbs.length,
-                medianGrade: medianGrade,
+                medianGrade: medianGradeOf(climbs),
                 longestKm: climbs.reduce(function (m, c) { return Math.max(m, c.distanceKm); }, 0),
                 totalGainM: climbs.reduce(function (s, c) { return s + c.gainM; }, 0),
                 steepShare: percent.steep + percent.extreme
+            },
+            descents: descents,
+            descentSummary: {
+                count: descents.length,
+                medianGrade: medianGradeOf(descents),
+                longestKm: descents.reduce(function (m, d) { return Math.max(m, d.distanceKm); }, 0),
+                totalLossM: descents.reduce(function (s, d) { return s + d.lossM; }, 0)
             }
         };
     }
@@ -907,6 +999,7 @@
         computeGradeStats: computeGradeStats,
         computeGradeProfile: computeGradeProfile,
         detectClimbs: detectClimbs,
+        detectDescents: detectDescents,
         smoothElevationByDistance: smoothElevationByDistance,
         bandForGrade: bandForGrade,
         gradeBands: GRADE_BANDS,

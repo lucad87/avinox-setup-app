@@ -93,6 +93,49 @@ test('the map colours and the grade bars come from the same measurement', () => 
     }
 });
 
+test('a steady climb and a steady descent are both detected, with their signs', () => {
+    const g = computeGradeStats(track([
+        { lengthM: 2000, grade: 10, stepM: 5 },
+        { lengthM: 2000, grade: -10, stepM: 5 }
+    ]));
+    assert.deepEqual([g.climbs.length, g.descents.length], [1, 1]);
+    const climb = g.climbs[0];
+    const descent = g.descents[0];
+    assert.ok(climb.averageGrade > 0 && descent.averageGrade < 0,
+        `climb ${climb.averageGrade}, descent ${descent.averageGrade}`);
+    assert.ok(Math.abs(climb.gainM - 200) < 5 && Math.abs(descent.lossM - 200) < 5,
+        `gainM ${climb.gainM}, lossM ${descent.lossM}`);
+    assert.ok(climb.startKm < climb.endKm && descent.startKm < descent.endKm,
+        `climb ${climb.startKm}..${climb.endKm}, descent ${descent.startKm}..${descent.endKm}`);
+    assert.ok(climb.startEle < climb.endEle && descent.startEle > descent.endEle,
+        `climb ${climb.startEle}..${climb.endEle}, descent ${descent.startEle}..${descent.endEle}`);
+    assert.ok(descent.steepestGrade < 0 && descent.steepestGrade <= descent.averageGrade,
+        `steepestGrade ${descent.steepestGrade}`);
+});
+
+test('a descent of 2% average is not reported', () => {
+    const g = computeGradeStats(track([{ lengthM: 5000, grade: -2, stepM: 10 }]));
+    assert.deepEqual(
+        [g.descents.length, g.descentSummary.count, g.descentSummary.medianGrade],
+        [0, 0, 0]
+    );
+});
+
+test('a very short descent (200 m) is not reported', () => {
+    const g = computeGradeStats(track([{ lengthM: 200, grade: -20, stepM: 5 }]));
+    assert.deepEqual([g.descents.length, g.descentSummary.count], [0, 0]);
+});
+
+test('a short flat stretch does not split a descent in two', () => {
+    const g = computeGradeStats(track([
+        { lengthM: 1000, grade: -8, stepM: 5 },
+        { lengthM: 50, grade: 0, stepM: 5 },
+        { lengthM: 1000, grade: -8, stepM: 5 }
+    ]));
+    assert.equal(g.descents.length, 1);
+    assert.ok(Math.abs(g.descents[0].averageGrade + 160 / 2050 * 100) < 0.3, `${g.descents[0].averageGrade}`);
+});
+
 const { declareMissingPrefixes } = require('../public/route-file.js');
 
 /* The shape of the GPX the DJI Avinox app exports: avinox: is never declared. */
