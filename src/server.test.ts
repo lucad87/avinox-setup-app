@@ -90,8 +90,8 @@ test('a reserve of zero is honoured by both route endpoints', async () => {
 test('the Tuner and the Route quote the same consumption for the same ground', async () => {
     const tuner = await post('/api/calculate', RIDER);
     const route = await post('/api/calculate-mission', {
-        ...RIDER, targetKm: 40, targetH_m: 40 * tuner.body.rangeModel.referenceClimbMPerKm,
-        surface: tuner.body.rangeModel.referenceSurface
+        ...RIDER, targetKm: 40, targetH_m: 40 * tuner.body.rangeModel.climbMPerKm,
+        surface: tuner.body.rangeModel.surface
     });
     assert.equal(tuner.status, 200);
     assert.ok(Math.abs(route.body.energy.estimated / 40 - tuner.body.rangeModel.referenceWhPerKm) < 0.1);
@@ -154,4 +154,21 @@ test('an older client that sends only the capacity keeps working', async () => {
     assert.equal(legacy700.boost.fullPowerAvailable, true);
     assert.equal(legacy800.boost.fullPowerAvailable, false);
     assert.equal(legacy800.battery, null);
+});
+
+test('the stock range modes no longer collapse onto TURBO', async () => {
+    const r = await post('/api/calculate', { ...RIDER, riderPower: 121, cadence: 75 });
+    const [eco, auto, trail, turbo] = r.body.stock.map((s: { whPerKm: number }) => s.whPerKm);
+    assert.ok(eco < auto && auto < trail && trail < turbo, `${eco} ${auto} ${trail} ${turbo}`);
+});
+
+test('a calibration with a motor share puts the Tuner on the rides\' ground', async () => {
+    const r = await post('/api/calculate', {
+        ...RIDER, realWhPerKm: 10.6, realKm: 48.1, realHm: 1647, realEfficiency: 0.8,
+        realSurface: 'mixed', realSteepShare: 10.7, realMotorShare: 0.65
+    });
+    assert.equal(r.body.rangeModel.basis, 'rides');
+    assert.equal(r.body.rangeModel.climbMPerKm, 34);
+    assert.equal(r.body.rangeModel.anchor, 'rides');
+    assert.equal(r.body.rangeModel.referenceWhPerKm, Math.round(10.6 / 0.8 * 10) / 10);
 });
