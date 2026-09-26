@@ -184,7 +184,11 @@ test('the app points newcomers to the tour, and both pages carry a share preview
     const app = await (await fetch(baseUrl + '/')).text();
     assert.match(app, /id="welcomeCard"/);
     assert.match(app, /href="\/welcome#case-route"/);
-    assert.match(app, /href="\/welcome#faq-proto"/);
+    /* The .proto answer lives in the app's own guide: the button opens the
+       Knowledge Base at the section that holds it, instead of leaving the
+       app for the landing page. */
+    assert.match(app, /data-open-kb data-kb-target="#kb-rides">Where are my \.proto files\?<\/button>/);
+    assert.doesNotMatch(app, /href="\/welcome#faq-proto"/);
     const landing = await (await fetch(baseUrl + '/welcome')).text();
     for (const page of [app, landing]) assert.match(page, /property="og:image" content="https:\/\/avinox-calculator\.lucad\.cloud\/assets\/og-welcome\.png"/);
     assert.match(landing, /id="faq-proto"/);
