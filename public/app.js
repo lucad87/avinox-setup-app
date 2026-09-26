@@ -398,9 +398,9 @@ function renderCalibrationState() {
             if (implausible) {
                 anomaly.classList.remove('hidden');
                 anomaly.innerHTML = 'This measurement looks anomalous (<strong>' + (cal.whPerKm ?? '?')
-                    + ' Wh/km</strong>, factor ×' + (cal.factor != null ? Number(cal.factor).toFixed(2) : '?')
-                    + '): a factor like this means the model and the bike disagree by a large multiple, which is a data problem rather than a riding style. '
-                    + 'It is <strong>not applied</strong> — ranges, runtime and route estimates come from the generic model. Removing it or loading a normal ride fixes it.';
+                    + ' Wh/km</strong>): the model and the bike disagree by a large multiple, which is a data problem '
+                    + 'rather than a riding style. It is <strong>not applied</strong> — the route estimate comes from '
+                    + 'the generic model. Removing it or loading a normal ride fixes it.';
             } else {
                 anomaly.classList.add('hidden');
                 anomaly.innerHTML = '';
@@ -443,10 +443,10 @@ function renderCalibrationState() {
         if (note) {
             note.classList.remove('hidden');
             note.innerText = implausible
-                ? 'The measurement on these rides is out of the plausible range, so it is NOT applied: the ranges you see come from the generic model.'
-                : 'Range and runtime come from your rides: ' +
-                    (cal.whPerKm ?? '?') + ' Wh/km of motor energy, measured across the modes you rode. ' +
-                    'Each mode is projected from it by its own support, so the mix you actually rode matches the measurement.';
+                ? 'The measurement on these rides is out of the plausible range, so it is NOT applied.'
+                : 'Your measured consumption: ' + (cal.whPerKm ?? '?') + ' Wh/km of motor energy over the whole ride. '
+                    + 'The Route plan scales its energy estimate with it; these two charts are the model\'s own, '
+                    + 'because a recording does not say which mode each assist value was.';
         }
         const resetBtn = document.getElementById('calibrationReset');
         if (resetBtn && !resetBtn.dataset.wired) {
@@ -625,14 +625,14 @@ function buildRideMap(ride) {
             ? gradeColorExpression()
             : ['interpolate', ['linear'], ['get', 'v'], lo, ch.ramp[0], hi, ch.ramp[1]]);
 
-    /* Legend: the band swatches for the gradient, the named modes for the
-       assist channel, the min/max ramp otherwise. */
+    /* Legend: the band swatches for the gradient, the assist values the ride
+       carries for that channel, the min/max ramp otherwise. */
     const legend = document.getElementById('mapLegend');
     if (legend) {
         legend.innerHTML = isGradient
             ? gradeLegendHtml()
             : (ch.categorical
-                ? rideModeLegendHtml()
+                ? rideModeLegendHtml(rideMapPoints)
                 : '<span class="legend-swatch" style="background:linear-gradient(90deg,' + ch.ramp[0] + ',' + ch.ramp[1] + ')"></span>'
                     + '<span>' + Math.round(lo) + ' – ' + Math.round(hi) + ' ' + (ch.label || '') + '</span>');
     }
@@ -803,26 +803,29 @@ function cssVarOr(name, fallback) {
     return v || fallback;
 }
 
+/* The assist value is a category the file numbers, not a mode name: each value
+   gets its own colour and the legend names the number, never a mode. */
+const ASSIST_COLORS = {
+    1: '#1F7A8C', 2: '#C98A00', 3: '#B03A2E', 4: '#6C5B9E', 5: '#3C7A3F',
+    20: '#8A6D3B', 21: '#5B7C99', 23: '#8C4A6B'
+};
+
 function rideModeColor(v) {
-    switch (v) {
-        case 1: return cssVarOr('--mode-eco', '#2f7d32');
-        case 2: return cssVarOr('--mode-auto', '#276bc1');
-        case 3: return cssVarOr('--mode-trail', '#e08a1e');
-        case 4: return cssVarOr('--mode-turbo', '#c0392b');
-        default: return cssVarOr('--mode-other', '#4A4440');
-    }
+    return ASSIST_COLORS[v] || cssVarOr('--mode-other', '#4A4440');
 }
 
 function rideModeColorExpression() {
-    return ['match', ['get', 'v'],
-        1, rideModeColor(1), 2, rideModeColor(2), 3, rideModeColor(3), 4, rideModeColor(4),
-        rideModeColor(0)];
+    const expr = ['match', ['get', 'v']];
+    Object.keys(ASSIST_COLORS).forEach((k) => { expr.push(Number(k), ASSIST_COLORS[k]); });
+    expr.push(rideModeColor(0));
+    return expr;
 }
 
-function rideModeLegendHtml() {
-    const items = [[1, 'ECO'], [2, 'AUTO'], [3, 'TRAIL'], [4, 'TURBO'], [0, 'other (boost / walk / off)']];
-    return items.map(([v, name]) => '<span><span class="band-swatch" style="background:'
-        + rideModeColor(v) + '"></span>' + name + '</span>').join('');
+function rideModeLegendHtml(points) {
+    const present = [...new Set((points || []).map((s) => s.assist).filter((v) => v != null))]
+        .sort((a, b) => a - b);
+    return present.map((v) => '<span><span class="band-swatch" style="background:' + rideModeColor(v)
+        + '"></span>assist ' + v + '</span>').join('');
 }
 
 /* The OSM raster style, shared by both maps. */
@@ -1916,23 +1919,13 @@ async function handleProtoFiles(files, opts) {
             const calHm = usedRides.reduce((a, r) => a + (r.metadata.ascent || 0), 0);
             if (usedRides.length) {
                 const cal = {
-                    factor: analysis.summary.factor,
-                    actualWh: analysis.summary.actualWh,
                     totalWh: analysis.summary.totalWh,
-                    modelWh: analysis.summary.modelWh,
-                    /* The whole-ride drain: what the estimates and the route use. */
+                    /* The drain per km over the whole ride - what the route plan
+                       and the estimates use. Nothing per mode: see the note on
+                       the assist values above. */
                     whPerKm: analysis.summary.whPerKm,
-                    /* The assist-mode consumption: the anchor of the projection. */
-                    modeWhPerKm: analysis.summary.modeWhPerKm,
-                    otherKm: analysis.summary.otherKm,
-                    otherWh: analysis.summary.otherWh,
                     /* The distance the energy above was integrated over. */
                     distanceKm: parseFloat(analysis.summary.distanceKm) || 0,
-                    avgLevel: analysis.summary.avgLevel,
-                    /* Distance ridden per mode: the weight the measured consumption
-                       belongs to, so every mode can be projected from it. */
-                    modeKm: analysis.summary.modeKm,
-                    modeWh: analysis.summary.modeWh,
                     realKm: Math.round(calKm * 10) / 10,
                     realHm: Math.round(calHm),
                     rideLabel: (excluded.length
@@ -1991,13 +1984,7 @@ function analyzeRideForCalibration(parsed) {
 
     /* Per-mode aggregation with sample-interval weighting. */
     const byLevel = {};
-    let actualWh = 0, totalWh = 0, modelWh = 0, distanceKm = 0, batteryStart = null, batteryEnd = null;
-    const bikeMaxPower = 1300; // physical ceiling used by the model comparison
-    /* The measured consumption belongs to the mix of modes actually ridden, so
-       the distance covered in each mode is tracked too: it is the weight the
-       projection uses. */
-    const totalWeight = (parseFloat(document.getElementById('riderWeight').value) || 0) +
-        (parseFloat(document.getElementById('bikeWeight').value) || 0);
+    let totalWh = 0, distanceKm = 0, batteryStart = null, batteryEnd = null;
     /* Distance must ADD UP over merged rides: each file restarts its
        distance counter at zero, so the max would only give the longest
        ride while energy is summed over all of them. */
@@ -2016,8 +2003,8 @@ function analyzeRideForCalibration(parsed) {
         if (prevDist === null) distOffset = 0;
         prevDist = rideDist;
         distanceKm = distOffset + rideDist;
-        /* Distance ridden since the previous sample: the weight this mode has
-           in the mix the measured consumption belongs to. */
+        /* Distance ridden since the previous sample, kept per assist value for
+           the report: it is what the file states, nothing more. */
         const stepKm = prevKm === null ? 0 : Math.max(0, Math.min(0.5, distanceKm - prevKm));
         prevKm = distanceKm;
 
@@ -2031,7 +2018,6 @@ function analyzeRideForCalibration(parsed) {
         const riderW = s.riderPower || 0, motorW = s.motorPower || 0;
         b.riderWh += riderW * dt / 3600;
         b.motorWh += motorW * dt / 3600;
-        actualWh += motorW * dt / 3600;
 
         /* Active averages: only samples where the rider is actually
            pedaling - otherwise coasting/stops dilute the averages. */
@@ -2040,16 +2026,9 @@ function analyzeRideForCalibration(parsed) {
             b.activeRiderWh += riderW * dt / 3600;
             b.activeMotorWh += motorW * dt / 3600;
         }
-
-        /* What this app's model delivers in that mode at the targets the rider
-           set: the same rider input, the mode's own support. */
-        const targetWkg = wkgTargetOfMode(lvl);
-        const modelMotor = targetWkg > 0 ? Math.min(targetWkg * totalWeight, bikeMaxPower) : 0;
-        modelWh += modelMotor * dt / 3600;
     }
 
-    /* Second pass over everything: the motor energy of the whole ride, states
-       the app does not model included. */
+    /* Second pass: the motor energy of the whole ride, every sample in it. */
     for (let i = 0; i < allSamples.length; i++) {
         const s = allSamples[i];
         const prev = i > 0 ? allSamples[i - 1] : null;
@@ -2062,48 +2041,20 @@ function analyzeRideForCalibration(parsed) {
         .sort((a, b) => a.level - b.level);
     if (!levels.length) throw Error('No meaningful assist samples in this ride.');
 
-    /* The mix of modes in the two currencies the projection needs: the distance
-       ridden in each (the weight the measured consumption belongs to) and the
-       motor energy spent (for the report). */
-    const modeKm = { eco: 0, auto: 0, trail: 0, turbo: 0 };
-    const modeWh = { eco: 0, auto: 0, trail: 0, turbo: 0 };
-    levels.forEach((b) => {
-        const mode = RIDE_MODES.find((m) => m.index === b.level);
-        if (!mode) return;
-        modeKm[mode.key] = Math.round(b.km * 100) / 100;
-        modeWh[mode.key] = Math.round(b.motorWh);
-    });
-
     /* Real rider profile: averages over active (pedaling) samples only. */
     const active = samples.filter((s) => (s.riderPower || 0) > 20);
     const avgRiderPower = active.length ? Math.round(active.reduce((a, s) => a + (s.riderPower || 0), 0) / active.length) : null;
     const avgCadence = active.length ? Math.round(active.reduce((a, s) => a + (s.cadence || 0), 0) / active.length) : null;
 
-    const factor = actualWh > 1 ? actualWh / modelWh : 1;
     const fmtDuration = (sec) => {
         const h = Math.floor(sec / 3600), m = Math.round((sec % 3600) / 60);
         return h > 0 ? h + 'h ' + m + 'm' : m + 'm';
     };
 
-    /* Real consumption model: motor Wh per km and the assist level that
-       produced it (energy-weighted). Sent to the API so range/runtime are
-       estimated from real data instead of "cap x hours". */
+    /* The battery drain per km over the whole ride, every sample in it: this is
+       what the range/runtime estimates and the route plan use. Nothing per mode
+       is computed, because the file does not say which mode a sample is. */
     const whPerKm = distanceKm > 0.5 ? totalWh / distanceKm : null;
-    /* Two honest quantities, each doing its own job:
-       - whPerKm: the battery drain per km over the WHOLE ride, unmodelled
-         states included. This is what the estimates and the route plan use.
-       - modeWhPerKm: the consumption of the assist modes alone, over the
-         distance ridden in them. The per-mode projection is anchored to this,
-         because that is the population of kilometres it distributes over.
-       The difference between the two is reported as the unmodelled stretch. */
-    const assistedKm = levels.reduce((a, l) => a + (l.km || 0), 0);
-    const modeWhPerKm = assistedKm > 0.5 ? actualWh / assistedKm : null;
-    const otherKm = Math.max(0, distanceKm - assistedKm);
-    const otherWh = Math.max(0, totalWh - actualWh);
-    const totalLevelWh = levels.reduce((a, l) => a + l.motorWh, 0);
-    const avgLevel = totalLevelWh > 0
-        ? levels.reduce((a, l) => a + l.level * l.motorWh, 0) / totalLevelWh
-        : null;
 
     return {
         summary: {
@@ -2112,98 +2063,32 @@ function analyzeRideForCalibration(parsed) {
             durationH: fmtDuration(parsed.metadata.duration),
             distanceKm: distanceKm.toFixed(1),
             batteryStart, batteryEnd,
-            actualWh: Math.round(actualWh),
             totalWh: Math.round(totalWh),
-            modelWh: Math.round(modelWh),
-            factor: Math.round(factor * 100) / 100,
             avgRiderPower,
             avgCadence,
-            whPerKm: whPerKm ? Math.round(whPerKm * 10) / 10 : null,
-            modeWhPerKm: modeWhPerKm ? Math.round(modeWhPerKm * 10) / 10 : null,
-            otherKm: Math.round(otherKm * 10) / 10,
-            otherWh: Math.round(otherWh),
-            avgLevel: avgLevel ? Math.round(avgLevel * 10) / 10 : null,
-            modeKm,
-            modeWh
+            whPerKm: whPerKm ? Math.round(whPerKm * 10) / 10 : null
         },
         levels
     };
 }
 
-/** W/kg target the rider set for a mode (1=ECO, 2=AUTO, 3=TRAIL, 4=TURBO). */
-function wkgTargetOfMode(level) {
-    const id = { 1: 'ecoWkg', 2: 'autoWkg', 3: 'trailWkg', 4: 'turboWkg' }[level];
-    const el = id ? document.getElementById(id) : null;
-    const v = el ? parseFloat(el.value) : NaN;
-    return Number.isFinite(v) && v > 0 ? v : 0;
-}
-
-/* The recordings carry the assist MODE, not a 1-15 level: field 8 takes 1-5 on
-   real rides (measured on seven of them), with the motor power ordered exactly
-   ECO < AUTO < TRAIL < TURBO. The 1-15 "levels" the app reasons about are its
-   own projection, not something the bike reports. */
-const RIDE_MODES = [
-    { key: 'eco', index: 1, id: 'ecoWkg' },
-    { key: 'auto', index: 2, id: 'autoWkg' },
-    { key: 'trail', index: 3, id: 'trailWkg' },
-    { key: 'turbo', index: 4, id: 'turboWkg' },
-];
-const RIDE_MODE_NAMES = { 1: 'ECO', 2: 'AUTO', 3: 'TRAIL', 4: 'TURBO' };
-
-/** Human name for the assist value a sample carries (non-riding states → other). */
-function rideModeName(value) {
-    return RIDE_MODE_NAMES[value] || 'other';
-}
-
-/* Below this much pedalling the per-mode average is noise, not a preference. */
-const RIDE_TARGET_MIN_SECONDS = 60;
-
-/**
- * The motor W/kg the rider actually got in each mode over the loaded rides:
- * for every mode, the average motor power while pedalling, weighted by
- * pedalling time, over the system weight. It describes what those rides
- * delivered — terrain and level mix included — so it is a starting point to
- * review, never a silent correction. Modes without enough data are omitted.
- */
-function targetsFromRide(analysis) {
-    const totalWeight = (parseFloat(document.getElementById('riderWeight').value) || 0) +
-        (parseFloat(document.getElementById('bikeWeight').value) || 0);
-    if (!(totalWeight > 0)) return {};
-    const out = {};
-    RIDE_MODES.forEach((mode) => {
-        let seconds = 0, motorWh = 0;
-        (analysis.levels || []).forEach((b) => {
-            if (b.level !== mode.index) return;
-            if (b.activeSeconds < RIDE_TARGET_MIN_SECONDS) return;
-            seconds += b.activeSeconds;
-            motorWh += b.activeMotorWh;
-        });
-        if (seconds <= 0) return;
-        const motorW = motorWh / (seconds / 3600);
-        const input = document.getElementById(mode.id);
-        if (!input) return;
-        const min = parseFloat(input.min), max = parseFloat(input.max);
-        const raw = motorW / totalWeight;
-        const wkg = Math.round(Math.min(Math.max(raw, min), max) * 100) / 100;
-        out[mode.key] = {
-            id: mode.id, wkg, motorW: Math.round(motorW),
-            capped: raw > max ? 'max' : (raw < min ? 'min' : null)
-        };
-    });
-    return out;
-}
+/* A recording carries the assist value the bike recorded (field 8) and nothing
+   that names it: 1, 2, 3, 4 and occasionally 5, 20, 21, 23. The app does NOT
+   turn those into ECO/AUTO/TRAIL/TURBO. An earlier version inferred an order
+   from the measured amplification and got it wrong on a rider's own ride, so
+   what is shown is the raw value - the only thing the file states. The modes
+   the Tuner models are the app's own, and nothing in the file relates the two. */
 
 function renderCalibrationReport(analysis) {
     const report = document.getElementById('calibrationReport');
     if (!report) return;
     lastRideAnalysis = analysis;
     const s = analysis.summary;
-    const targets = targetsFromRide(analysis);
-    const targetCount = Object.keys(targets).length;
+    /* The table lists the assist values the file carries, exactly as it numbers
+       them: no mode names, because the file names none. */
     const rows = analysis.levels.map((b) => {
         const riding = b.activeSeconds > 0 ? b.activeSeconds / 3600 : 0;
-        return '<tr><td>' + rideModeName(b.level) +
-            (RIDE_MODE_NAMES[b.level] ? '' : ' <span class="kv-hint">(#' + b.level + ')</span>') + '</td>' +
+        return '<tr><td>assist ' + b.level + '</td>' +
             '<td>' + Math.round(b.seconds / 60) + ' min</td>' +
             '<td>' + Math.round(riding > 0 ? b.activeRiderWh / riding : 0) + ' W</td>' +
             '<td>' + Math.round(riding > 0 ? b.activeMotorWh / riding : 0) + ' W</td>' +
@@ -2217,37 +2102,20 @@ function renderCalibrationReport(analysis) {
         kvRow('Duration / distance:', s.durationH + ' / ' + s.distanceKm + ' km') +
         kvRow('Battery start / finish:', (s.batteryStart ?? '—') + ' / ' + (s.batteryEnd ?? '—') + ' %') +
         kvRow('Your real averages:', (s.avgCadence ?? '—') + ' RPM · ' + (s.avgRiderPower ?? '—') + ' W (while pedaling)') +
-        kvRow('Motor energy (whole ride):', (s.totalWh ?? s.actualWh) + ' Wh') +
-        kvRow('Assist-mode energy:', s.actualWh + ' Wh') +
-        kvRow('Model at your targets (ceiling):', s.modelWh + ' Wh' +
-            (s.actualWh > 0 ? ' — you used ' + Math.round((s.actualWh / s.modelWh) * 100) + '%' : '')) +
+        kvRow('Motor energy (whole ride):', s.totalWh + ' Wh') +
         '</div></div>' +
         '<div class="kb-table-wrap"><table class="kb-table"><thead><tr>' +
-        '<th>Mode</th><th>Time</th><th>Rider W (riding)</th><th>Motor W (riding)</th><th>Rider W (total)</th><th>Energy</th>' +
+        '<th>Assist</th><th>Time</th><th>Rider W (riding)</th><th>Motor W (riding)</th><th>Rider W (total)</th><th>Energy</th>' +
         '</tr></thead><tbody>' + rows + '</tbody></table></div>' +
-        (s.otherKm > 0.1
-            ? '<p class="hint"><strong>' + s.otherKm.toFixed(1) + ' km</strong>'
-                + (parseFloat(s.distanceKm) > 0
-                    ? ' (' + Math.round((s.otherKm / parseFloat(s.distanceKm)) * 100) + '% of the ride)'
-                    : '')
-                + ' were ridden in states the app does not model (boost, walk, off — shown as <em>other</em> above): '
-                + 'their <strong>' + s.otherWh + ' Wh</strong> count in the measured consumption, because the battery '
-                + 'gave them, but not in the mode mix the per-mode projection is built from. '
-                + 'On the map, pick <em>Assist mode</em> to see where they are.</p>'
-            : '') +
+        '<p class="hint">The values above are the assist values the recording carries, as the bike numbered them. ' +
+        'The file says nothing about which mode each one was, so the app does not guess: it shows the number. ' +
+        'Route estimates use the whole-ride consumption, which counts every watt-hour in the file.</p>' +
         '<button type="button" id="useRideAverages" class="btn btn-primary btn-block"' +
         ((s.avgCadence && s.avgRiderPower) ? '' : ' disabled') + '>Use ride averages' +
         ((s.avgCadence && s.avgRiderPower) ? ' — ' + s.avgCadence + ' RPM · ' + s.avgRiderPower + ' W' : '') +
         '</button>' +
-        '<button type="button" id="targetsFromRides" class="btn btn-ghost btn-block stack-btn"' +
-        (targetCount ? '' : ' disabled') +
-        ' title="Sets the four W/kg targets to the motor support your loaded rides actually delivered in each mode, weighted by pedalling time. A recording carries the mode you rode in, not the level you had set. It describes those rides — terrain and mix included — so review it and change it if you want.">' +
-        'Set targets from my rides — ' +
-        (targetCount
-            ? loadedRides.length + ' ride' + (loadedRides.length > 1 ? 's' : '') + ' · ' + targetCount + ' mode' + (targetCount > 1 ? 's' : '')
-            : 'not enough data') +
-        '</button>' +
-        '<p class="hint">Estimates now come from the real consumption measured on your rides (' + (s.whPerKm ?? '?') + ' Wh/km) — that part is automatic. The two buttons above are optional and independent: each copies something from the rides into the Tuner — the cadence and power you pedalled at, and the motor W/kg each mode delivered — and neither touches your setup until you press it.</p>';
+        '<p class="hint">Reading the values above and telling the Tuner which one is which mode is up to you: ' +
+        'the app does not map them, so it does not write targets by itself.</p>';
     const useBtn = document.getElementById('useRideAverages');
     if (useBtn && s.avgCadence && s.avgRiderPower) {
         useBtn.addEventListener('click', () => {
@@ -2274,45 +2142,6 @@ function renderCalibrationReport(analysis) {
         });
     }
 
-    const targetsBtn = document.getElementById('targetsFromRides');
-    if (targetsBtn && targetCount) {
-        targetsBtn.addEventListener('click', () => {
-            const labels = [];
-            const fields = [];
-            RIDE_MODES.forEach((mode) => {
-                const t = targets[mode.key];
-                if (!t) return;
-                const input = document.getElementById(t.id);
-                const slider = document.getElementById(t.id + 'Slider');
-                if (!input) return;
-                input.value = t.wkg.toFixed(2);
-                if (slider) slider.value = t.wkg.toFixed(2);
-                labels.push(mode.key.toUpperCase() + ' ' + t.wkg.toFixed(2) +
-                    (t.capped === 'max' ? ' (capped to its maximum)'
-                        : (t.capped === 'min' ? ' (raised to its minimum)' : '')));
-                fields.push(input.closest('.field') || input);
-            });
-            /* A form change like any other: it persists, the preset highlight
-               is derived from the values, and the Tuner and the visible Route
-               analysis follow through the same debounced path. */
-            saveForm();
-            markActivePreset();
-            scheduleFromTuner();
-            /* The sliders live in the Tuner: take the user there and show which
-               fields changed, or the click looks like nothing happened. */
-            switchTab('calc');
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-            fields.forEach((field) => {
-                field.classList.remove('field-flash');
-                void field.offsetWidth;
-                field.classList.add('field-flash');
-                setTimeout(() => field.classList.remove('field-flash'), 2600);
-            });
-            showToast('Targets set from your ' + loadedRides.length + ' ride' +
-                (loadedRides.length > 1 ? 's' : '') + ': ' + labels.join(' · ') +
-                ' W/kg. Review them, or pick a riding style to reset.');
-        });
-    }
 }
 
 /* ---- Form persistence (Phase 1) ---------------------------------------- */
@@ -2538,19 +2367,10 @@ async function updateSetup() {
         trailWkg: document.getElementById('trailWkg').value,
         turboWkg: document.getElementById('turboWkg').value
     };
-    /* Real-ride consumption: when rides are calibrated, ask the API to derive
-       range/runtime from the measured Wh/km and the distance ridden in each
-       mode (the mix that measurement belongs to). A calibration stored before
-       the mix existed carries no modeKm: the API then serves the generic model
-       rather than rescaling by a reference nobody can justify. */
-    const calibration = getCalibration();
-    if (calibration && calibration.whPerKm > 0 && calibration.modeKm) {
-        /* The projection distributes over the assisted kilometres, so it is
-           anchored to the assist-mode consumption, not to the whole-ride drain
-           (which also carries the kilometres the motor was off). */
-        data.realWhPerKm = calibration.modeWhPerKm || calibration.whPerKm;
-        data.realModeKm = calibration.modeKm;
-    }
+    /* The Tuner's per-mode charts are the model's own. A recording cannot
+       personalise them: that would need to know which mode each recorded assist
+       value was, and the file does not say. The measured consumption is used by
+       the route plan instead, where it needs no such attribution. */
 
 
     try {
@@ -3313,7 +3133,7 @@ function measureRide(ride) {
             whPerKm: own.summary.whPerKm,
             km: km,
             hm: ride.metadata.ascent || 0,
-            wh: own.summary.actualWh
+            wh: own.summary.totalWh
         };
     } catch (e) {
         return null;
