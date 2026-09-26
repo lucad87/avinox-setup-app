@@ -51,7 +51,18 @@ function initWelcomeCard() {
 
 function initSidebarLinks() {
     document.querySelectorAll('[data-open-kb]').forEach((el) => {
-        el.addEventListener('click', () => document.getElementById('kbOpenBtn').click());
+        el.addEventListener('click', () => {
+            document.getElementById('kbOpenBtn').click();
+            /* An optional target takes the reader straight to the answer they
+               came for, instead of leaving them at the top of the guide. */
+            const target = el.getAttribute('data-kb-target');
+            if (!target) return;
+            const hit = document.querySelector(target);
+            if (!hit) return;
+            const details = hit.closest('details');
+            if (details && !details.open) details.open = true;
+            requestAnimationFrame(() => hit.scrollIntoView({ block: 'start', behavior: 'smooth' }));
+        });
     });
 }
 
