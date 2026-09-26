@@ -133,6 +133,18 @@ export interface MeasuredRides {
     efficiency: number;
     surfaceId: string;
     steepShare: number;
+    /** Motor energy over motor + rider energy on those rides, when measured. */
+    motorShare: number | null;
+}
+
+/* Outside this window the measured motor share says more about the file than
+   about the riding: the Tuner then anchors on the DJI stock mix instead. */
+export const MOTOR_SHARE_MIN = 0.2;
+export const MOTOR_SHARE_MAX = 0.98;
+
+export function motorShareMeasured(value: unknown): number | null {
+    const n = parseFloat(String(value));
+    return n >= MOTOR_SHARE_MIN && n <= MOTOR_SHARE_MAX ? n : null;
 }
 
 export interface PersonalFactor {
@@ -214,9 +226,34 @@ export const MODE_KEYS: ModeKey[] = ['eco', 'auto', 'trail', 'turbo'];
 
 export const REFERENCE_CLIMB_M_PER_KM = 15;
 export const REFERENCE_SURFACE = 'mixed';
-// One moving average for every mode: the terrain is the same, and a duration
-// per mode then reads as "how long the battery lasts" rather than as a pace.
-export const REFERENCE_SPEED_KMH = 16;
+
+/* Moving speed. On the flat it barely depends on the mode; on a climb it
+   follows the total power (rider + motor). Two recorded rides fix the
+   relation: at the same gradient the rider eased off as the assist grew
+   (142 W at 1.2x, 96 W at 3x), so the total power grew only with the cube
+   root of (1 + assist ratio), from twice the rider's average pedalling
+   power. With a 10% climb and offroad rolling resistance this reproduces
+   the measured 8.5 km/h (1.2x) and 10.3 km/h (3x) climbing speeds. */
+export const FLAT_SPEED_KMH = 15;
+export const CLIMB_GRADE = 0.10;
+export const CLIMB_ROLLING_RESISTANCE = 0.03;
+export const CLIMB_EFFORT = 2.0;
+const GRAVITY = 9.81;
+
+export function climbTotalPowerW(riderW: number, motorW: number): number {
+    return CLIMB_EFFORT * riderW * Math.cbrt(1 + motorW / riderW);
+}
+
+export function climbSpeedKmH(riderW: number, motorW: number, totalWeight: number): number {
+    return 3.6 * climbTotalPowerW(riderW, motorW) / (totalWeight * GRAVITY * (CLIMB_GRADE + CLIMB_ROLLING_RESISTANCE));
+}
+
+/** Average moving speed on ground climbing `climbMPerKm`, ridden at CLIMB_GRADE. */
+export function movingSpeedKmH(climbMPerKm: number, riderW: number, motorW: number, totalWeight: number): number {
+    const climbing = clamp(climbMPerKm / (1000 * CLIMB_GRADE), 0, 0.9);
+    const vClimb = climbSpeedKmH(riderW, motorW, totalWeight);
+    return 1 / (climbing / vClimb + (1 - climbing) / FLAT_SPEED_KMH);
+}
 
 /** Share of the distance ridden in each mode, from the climbing share of the energy (0..1). */
 export function modeMixFor(climbRatio: number): Record<ModeKey, number> {
@@ -247,34 +284,55 @@ export interface ModeRange {
     whPerKm: number;
     range: number;
     runtime: number;
+    speedKmH: number;
 }
 
+/**
+ * Without a calibration: the route model on the reference ground, anchored on
+ * the DJI stock modes in the mix the route model assigns to that ground.
+ * With one: the ground of the calibration rides, anchored on the motor share
+ * measured on them. The rides were ridden in the rider's own modes, not in a
+ * stock mix, so each mode takes the measured consumption scaled by its motor
+ * share over the rides' motor share (the total energy per km depends on the
+ * ground, not on the mode: checked on two real rides).
+ */
 export function tunerRanges(i: TunerRangeInput) {
-    const terrain = terrainEnergy({
-        km: 1,
-        hm: REFERENCE_CLIMB_M_PER_KM,
-        totalWeight: i.totalWeight,
-        surfaceId: REFERENCE_SURFACE,
-        steepShare: 0
-    });
-    const mix = modeMixFor(terrain.climb / terrain.base);
     const personal = personalFactorOf(i.real, i.totalWeight);
+    const calibrated = personal.applied && i.real != null;
+    const ground = calibrated
+        ? { climbMPerKm: i.real!.hm / i.real!.km, surfaceId: i.real!.surfaceId, steepShare: i.real!.steepShare }
+        : { climbMPerKm: REFERENCE_CLIMB_M_PER_KM, surfaceId: REFERENCE_SURFACE, steepShare: 0 };
+    const terrain = terrainEnergy({ km: 1, hm: ground.climbMPerKm, totalWeight: i.totalWeight, ...ground });
+    const mix = modeMixFor(terrain.climb / terrain.base);
     const referenceWhPerKm = terrain.estimated * personal.factor;
+
+    const ridesShare = calibrated ? i.real!.motorShare : null;
     const stockShare = MODE_KEYS.reduce((sum, k) => sum + mix[k] * motorShareOf(i.stockMotorW[k], i.riderW), 0);
+    const anchorShare = ridesShare ?? stockShare;
 
     const rangeOf = (motorW: number): ModeRange => {
-        const whPerKm = stockShare > 0 ? referenceWhPerKm * motorShareOf(motorW, i.riderW) / stockShare : 0;
-        if (!(whPerKm > 0)) return { whPerKm: 0, range: 0, runtime: 0 };
+        const whPerKm = anchorShare > 0 ? referenceWhPerKm * motorShareOf(motorW, i.riderW) / anchorShare : 0;
+        if (!(whPerKm > 0)) return { whPerKm: 0, range: 0, runtime: 0, speedKmH: 0 };
         const range = i.batteryWh / whPerKm;
+        const speed = movingSpeedKmH(ground.climbMPerKm, i.riderW, motorW, i.totalWeight);
         return {
             whPerKm: Math.round(whPerKm * 10) / 10,
             range: Math.round(range),
-            runtime: Math.round((range / REFERENCE_SPEED_KMH) * 10) / 10
+            runtime: Math.round((range / speed) * 10) / 10,
+            speedKmH: Math.round(speed * 10) / 10
         };
     };
 
     const perMode = (w: Record<ModeKey, number>) =>
         Object.fromEntries(MODE_KEYS.map((k) => [k, rangeOf(w[k])])) as Record<ModeKey, ModeRange>;
 
-    return { referenceWhPerKm, mix, personal, modes: perMode(i.modeMotorW), stock: perMode(i.stockMotorW) };
+    return {
+        referenceWhPerKm,
+        ground: { ...ground, basis: calibrated ? 'rides' : 'reference' },
+        anchor: ridesShare != null ? 'rides' : 'stock',
+        mix,
+        personal,
+        modes: perMode(i.modeMotorW),
+        stock: perMode(i.stockMotorW)
+    };
 }

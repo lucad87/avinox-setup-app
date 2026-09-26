@@ -37,6 +37,7 @@ function calibrationPayload() {
     if (cal.efficiency) payload.realEfficiency = cal.efficiency;
     if (cal.surface) payload.realSurface = cal.surface;
     if (Number.isFinite(cal.steepSharePct)) payload.realSteepShare = cal.steepSharePct;
+    if (cal.motorShare) payload.realMotorShare = cal.motorShare;
     return payload;
 }
 
@@ -558,8 +559,8 @@ let rideMapPoints = [];       // downsampled route points (with lat/lon)
 
 const MAP_CHANNELS = {
     speed: { label: 'km/h', get: (s) => s.speed, ramp: ['#276bc1', '#e06432'], step: 0 },
-    /* Categorical, not a ramp: a recording carries the assist MODE, and the
-       states the app does not model (boost, walk, off) have no mode name. */
+    /* Categorical, not a ramp: a recording carries an assist value per
+       sample, a number that is not the mode's name (see describeAssistValues). */
     assist: { label: '', get: (s) => s.assist, categorical: true },
     altitude: { label: 'm', get: (s) => s.altitude, ramp: ['#665d50', '#c9b18a'], step: 0 },
     gradient: { label: '%', get: (s) => s.gradient, ramp: ['#2b6cb0', '#c0392b'], step: 0, symmetric: true },
@@ -887,8 +888,11 @@ function rideModeColorExpression() {
 function rideModeLegendHtml(points) {
     const present = [...new Set((points || []).map((s) => s.assist).filter((v) => v != null))]
         .sort((a, b) => a - b);
-    return present.map((v) => '<span><span class="band-swatch" style="background:' + rideModeColor(v)
-        + '"></span>assist ' + v + '</span>').join('');
+    return present.map((v) => {
+        const name = AvinoxRideEnergy.assistName(v);
+        const label = name === 'custom' ? 'custom ' + v : (name ? name + ' (' + v + ')' : 'assist ' + v);
+        return '<span><span class="band-swatch" style="background:' + rideModeColor(v) + '"></span>' + label + '</span>';
+    }).join('');
 }
 
 /* The OSM raster style, shared by both maps. */
@@ -1989,8 +1993,11 @@ async function handleProtoFiles(files, opts) {
             const efficiency = ridesPackEfficiency(usedRides);
             analysis.summary.efficiency = efficiency;
             if (usedRides.length) {
-                const rideKm = usedRides.map((r) => AvinoxRideEnergy.rideEnergy(r.samples).km);
+                const energies = usedRides.map((r) => AvinoxRideEnergy.rideEnergy(r.samples));
+                const rideKm = energies.map((e) => e.km);
                 const totalRideKm = rideKm.reduce((a, k) => a + k, 0);
+                const motorWh = energies.reduce((a, e) => a + e.motorWh, 0);
+                const riderWh = energies.reduce((a, e) => a + e.riderWh, 0);
                 const steepSharePct = totalRideKm > 0
                     ? usedRides.reduce((a, r, i) => a + rideSteepSharePct(r) * rideKm[i], 0) / totalRideKm
                     : 0;
@@ -2002,6 +2009,10 @@ async function handleProtoFiles(files, opts) {
                     efficiencyMeasured: efficiency.measured,
                     surface: selectedSurface(),
                     steepSharePct: Math.round(steepSharePct * 10) / 10,
+                    /* How much of the work the motor did on these rides: the
+                       Tuner splits the measured consumption between the modes
+                       by their motor share against this one. */
+                    motorShare: motorWh + riderWh > 0 ? Math.round(motorWh / (motorWh + riderWh) * 1000) / 1000 : null,
                     totalWh: analysis.summary.totalWh,
                     /* The drain per km over the whole ride - what the route plan
                        and the estimates use. Nothing per mode: see the note on
@@ -2054,11 +2065,10 @@ async function handleProtoFiles(files, opts) {
 let lastRideAnalysis = null;
 
 function analyzeRideForCalibration(parsed) {
-    /* A recording carries the assist MODE (ECO/AUTO/TRAIL/TURBO), not the level.
-       The states the bike also logs (boost, walk, off: values above 4) are left
-       out, so both sides of the comparison cover the same riding. */
-    const samples = parsed.samples.filter((s) => s && s.timestamp && s.assist >= 1 && s.assist <= 15);
-    if (samples.length < 10) throw Error('Not enough comparable samples in this ride file (assist modes).');
+    /* Every assist value is kept: values above 4 are not only boost/walk/off
+       states, 20 and 21 were two custom modes on a real ride. */
+    const samples = parsed.samples.filter((s) => s && s.timestamp && s.assist != null);
+    if (samples.length < 10) throw Error('Not enough samples in this ride file.');
 
     /* Distance and motor energy are totalled ride by ride, over EVERY sample,
        including the states the app does not model (boost, walk, off): that is
@@ -2139,27 +2149,25 @@ function analyzeRideForCalibration(parsed) {
             avgCadence,
             whPerKm: whPerKm ? Math.round(whPerKm * 10) / 10 : null
         },
-        levels
+        levels,
+        assist: AvinoxRideEnergy.describeAssistValues(samples)
     };
 }
 
-/* A recording carries the assist value the bike recorded (field 8) and nothing
-   that names it: 1, 2, 3, 4 and occasionally 5, 20, 21, 23. The app does NOT
-   turn those into ECO/AUTO/TRAIL/TURBO. An earlier version inferred an order
-   from the measured amplification and got it wrong on a rider's own ride, so
-   what is shown is the raw value - the only thing the file states. The modes
-   the Tuner models are the app's own, and nothing in the file relates the two. */
+/* A recording carries the assist value the bike recorded (field 8), a number
+   that is not the mode's name. The table describes each value by what the
+   motor did and names it only where that is confirmed (see ride-energy.js). */
 
 function renderCalibrationReport(analysis) {
     const report = document.getElementById('calibrationReport');
     if (!report) return;
     lastRideAnalysis = analysis;
     const s = analysis.summary;
-    /* The table lists the assist values the file carries, exactly as it numbers
-       them: no mode names, because the file names none. */
+    const describe = {};
+    (analysis.assist || []).forEach((d) => { describe[d.value] = d.label; });
     const rows = analysis.levels.map((b) => {
         const riding = b.activeSeconds > 0 ? b.activeSeconds / 3600 : 0;
-        return '<tr><td>assist ' + b.level + '</td>' +
+        return '<tr><td>' + escapeHtml(describe[b.level] || 'assist ' + b.level) + '</td>' +
             '<td>' + Math.round(b.seconds / 60) + ' min</td>' +
             '<td>' + Math.round(riding > 0 ? b.activeRiderWh / riding : 0) + ' W</td>' +
             '<td>' + Math.round(riding > 0 ? b.activeMotorWh / riding : 0) + ' W</td>' +
@@ -2179,8 +2187,10 @@ function renderCalibrationReport(analysis) {
         '<div class="kb-table-wrap"><table class="kb-table"><thead><tr>' +
         '<th>Assist</th><th>Time</th><th>Rider W (riding)</th><th>Motor W (riding)</th><th>Rider W (total)</th><th>Energy</th>' +
         '</tr></thead><tbody>' + rows + '</tbody></table></div>' +
-        '<p class="hint">The values above are the assist values the recording carries, as the bike numbered them. ' +
-        'The file says nothing about which mode each one was, so the app does not guess: it shows the number. ' +
+        '<p class="hint">The recording stores a number for the assist, not the mode\'s name. Each value is described ' +
+        'by what the motor did while you pedalled: a <strong>fixed</strong> ratio of motor to rider power, or a ' +
+        '<strong>dynamic</strong> one that grows with the gradient. Names are given only where they are confirmed ' +
+        '(1 = ECO, 4 = AUTO, 20 and up = custom modes). ' +
         'Route estimates use the whole-ride consumption, which counts every watt-hour in the file.</p>' +
         '<button type="button" id="useRideAverages" class="btn btn-primary btn-block"' +
         ((s.avgCadence && s.avgRiderPower) ? '' : ' disabled') + '>Use ride averages' +
@@ -2464,6 +2474,9 @@ async function updateSetup() {
             { name: 'TURBO', key: 'turbo', val: parseFloat(data.turboWkg), data: res.turbo, desc: 'Peak emergency boost map.' }
         ];
 
+        const groundText = res.rangeModel.basis === 'rides'
+            ? `your rides' ground (${res.rangeModel.climbMPerKm} m/km)`
+            : `${res.rangeModel.climbMPerKm} m/km mixed ground`;
         const grid = document.getElementById('resultsGrid');
         grid.innerHTML = '';
         modes.forEach(m => {
@@ -2496,7 +2509,7 @@ async function updateSetup() {
                     kvRow('Power Limit:', m.data.watts, powerHint + drawHint + calHint),
                     kvRow('Max Torque:', m.data.torque, torqueHint),
                     kvRow('Consumption:', `~${m.data.whPerKm} Wh/km`,
-                        ` <span class="kv-hint">· ${m.data.range} km on ${res.rangeModel.referenceClimbMPerKm} m/km mixed ground</span>`),
+                        ` <span class="kv-hint">· ${m.data.range} km · ${m.data.runtime} h at ~${m.data.speedKmH} km/h on ${groundText}</span>`),
                     kvRow('Max Overrun:', m.data.maxOverrun),
                     kvRow('Assist Start:', m.data.assistStart),
                     kvRow('Continued Assist:', m.data.continuedAssist),
