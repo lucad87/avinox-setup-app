@@ -4,7 +4,7 @@
    Bump CACHE whenever the shell changes: it is what purges the previous
    copy on the next activation, so a device that was left on an older
    deploy cannot keep serving it. */
-const CACHE = 'avinox-calc-v3';
+const CACHE = 'avinox-calc-v4';
 const ASSETS = [
     '/',
     '/index.html',
@@ -12,6 +12,7 @@ const ASSETS = [
     '/app.js',
     '/route-file.js',
     '/avinox-proto-parser.js',
+    '/ride-energy.js',
     '/manifest.webmanifest',
     '/assets/logo-full.png',
     '/assets/logo-mark.png',

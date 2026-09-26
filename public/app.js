@@ -69,20 +69,63 @@ function getCalibrationNotes() {
  * almost nothing, and averaging it in would inflate every range.
  */
 function rideMotorWhPerKm(ride) {
-    const samples = (ride.samples || []).filter((s) => s && s.timestamp);
-    if (samples.length < 10) return null;
-    let wh = 0, prevTs = null;
-    for (let i = 0; i < samples.length; i++) {
-        const s = samples[i];
-        /* Same interval rule as the calibration itself. */
-        const dt = prevTs !== null && s.timestamp > prevTs ? Math.min(s.timestamp - prevTs, 10) : 1;
-        prevTs = s.timestamp;
-        wh += (s.motorPower || 0) * dt / 3600;
-    }
-    const last = samples[samples.length - 1] || {};
-    const km = last.distanceKm || 0;
-    if (!(km > 0.5)) return null;
-    return { whPerKm: wh / km, motorWh: wh, km };
+    const e = AvinoxRideEnergy.rideEnergy(ride.samples);
+    if (e.samples < 10 || !(e.km > 0.5)) return null;
+    return { whPerKm: e.motorWh / e.km, motorWh: e.motorWh, km: e.km };
+}
+
+/* The pack the rides were measured on is the one selected in the Tuner: the
+   battery drop of the rides only converts to Wh through its capacity. */
+function selectedBatteryWh() {
+    return parseFloat((document.getElementById('batteryWh') || {}).value) || 0;
+}
+
+function ridesPackEfficiency(rides) {
+    return AvinoxRideEnergy.packEfficiency(
+        rides.map((r) => AvinoxRideEnergy.rideEnergy(r.samples)),
+        selectedBatteryWh()
+    );
+}
+
+/* GPS track of a ride, in the point format route-file.js uses. */
+function rideTrackPoints(ride) {
+    const points = [];
+    ride.samples.forEach((s) => {
+        if (Number.isFinite(s.latitude) && Number.isFinite(s.longitude)) {
+            points.push({
+                lat: s.latitude,
+                lon: s.longitude,
+                ele: Number.isFinite(s.altitude) ? s.altitude : null
+            });
+        }
+    });
+    return points;
+}
+
+/* Share of a ride in the steep and extreme bands (%), measured the same way
+   as for a route: the personal factor compares like with like. */
+function rideSteepSharePct(ride) {
+    const points = rideTrackPoints(ride);
+    if (points.length < 3 || typeof AvinoxRoute === 'undefined') return 0;
+    const grades = AvinoxRoute.computeGradeStats(points);
+    return grades.ok ? grades.climbSummary.steepShare : 0;
+}
+
+function selectedSurface() {
+    return (document.getElementById('surface') || {}).value || 'mixed';
+}
+
+function efficiencyText(eff) {
+    if (!eff) return '—';
+    const pct = Math.round(eff.efficiency * 100) + '%';
+    if (eff.measured) return pct + ' (measured on a ' + Math.round(eff.dropPct) + '% battery drop)';
+    const why = {
+        'battery-drop-too-small': 'battery drop too small to read',
+        'out-of-range': 'measured ' + (eff.value != null ? Math.round(eff.value * 100) + '%' : '?')
+            + ', not plausible: range extender or another pack?',
+        'no-battery-capacity': 'no battery selected'
+    }[eff.reason] || 'not measurable';
+    return pct + ' (default: ' + why + ')';
 }
 
 /** Why a ride cannot feed the calibration, or null when it can. */
@@ -444,7 +487,9 @@ function renderCalibrationState() {
             note.classList.remove('hidden');
             note.innerText = implausible
                 ? 'The measurement on these rides is out of the plausible range, so it is NOT applied.'
-                : 'Your measured consumption: ' + (cal.whPerKm ?? '?') + ' Wh/km of motor energy over the whole ride. '
+                : 'Your measured consumption: ' + (cal.whPerKm ?? '?') + ' Wh/km of motor energy over the whole ride, '
+                    + 'taken from the battery at ' + Math.round((cal.efficiency || 0.8) * 100) + '% efficiency'
+                    + (cal.efficiencyMeasured ? ' (measured on the battery drop). ' : ' (default). ')
                     + 'The Route plan scales its energy estimate with it; these two charts are the model\'s own, '
                     + 'because a recording does not say which mode each assist value was.';
         }
@@ -1917,8 +1962,22 @@ async function handleProtoFiles(files, opts) {
                describe the same rides. */
             const calKm = parseFloat(analysis.summary.distanceKm) || 0;
             const calHm = usedRides.reduce((a, r) => a + (r.metadata.ascent || 0), 0);
+            const efficiency = ridesPackEfficiency(usedRides);
+            analysis.summary.efficiency = efficiency;
             if (usedRides.length) {
+                const rideKm = usedRides.map((r) => AvinoxRideEnergy.rideEnergy(r.samples).km);
+                const totalRideKm = rideKm.reduce((a, k) => a + k, 0);
+                const steepSharePct = totalRideKm > 0
+                    ? usedRides.reduce((a, r, i) => a + rideSteepSharePct(r) * rideKm[i], 0) / totalRideKm
+                    : 0;
                 const cal = {
+                    /* The ride conditions the factor is measured against: the
+                       route model applies the same surface and steepness, so
+                       they must be on both sides of the comparison. */
+                    efficiency: efficiency.efficiency,
+                    efficiencyMeasured: efficiency.measured,
+                    surface: selectedSurface(),
+                    steepSharePct: Math.round(steepSharePct * 10) / 10,
                     totalWh: analysis.summary.totalWh,
                     /* The drain per km over the whole ride - what the route plan
                        and the estimates use. Nothing per mode: see the note on
@@ -2103,6 +2162,7 @@ function renderCalibrationReport(analysis) {
         kvRow('Battery start / finish:', (s.batteryStart ?? '—') + ' / ' + (s.batteryEnd ?? '—') + ' %') +
         kvRow('Your real averages:', (s.avgCadence ?? '—') + ' RPM · ' + (s.avgRiderPower ?? '—') + ' W (while pedaling)') +
         kvRow('Motor energy (whole ride):', s.totalWh + ' Wh') +
+        (s.efficiency ? kvRow('Motor → battery efficiency:', efficiencyText(s.efficiency)) : '') +
         '</div></div>' +
         '<div class="kb-table-wrap"><table class="kb-table"><thead><tr>' +
         '<th>Assist</th><th>Time</th><th>Rider W (riding)</th><th>Motor W (riding)</th><th>Rider W (total)</th><th>Energy</th>' +
@@ -2807,7 +2867,10 @@ function renderFileSummary() {
                     + (Number.isFinite(s.gpsDistanceKm)
                         ? ' <span class="kv-hint">bike odometer · GPS track ' + s.gpsDistanceKm.toFixed(1) + ' km</span>'
                         : '')],
-                ['Elevation gain', eleOk ? Math.round(s.elevationGainM) + ' m' : '—'],
+                ['Elevation gain', eleOk ? Math.round(s.elevationGainM) + ' m'
+                    + (Number.isFinite(s.gpsElevationGainM)
+                        ? ' <span class="kv-hint">bike sensor · GPS track ' + Math.round(s.gpsElevationGainM) + ' m</span>'
+                        : '') : '—'],
                 ['Elevation loss', eleOk ? Math.round(s.elevationLossM) + ' m' : '—'],
                 ['Min / max altitude', eleOk ? Math.round(s.minElevationM) + ' / ' + Math.round(s.maxElevationM) + ' m' : '—'],
                 ['Points / segments', s.pointCount + ' / ' + s.segmentCount]
@@ -3019,6 +3082,10 @@ document.getElementById('missionForm').addEventListener('submit', async (e) => {
         data.realWhPerKm = selectedRideMetrics.whPerKm;
         data.realKm = Math.round(selectedRideMetrics.km * 10) / 10;
         data.realHm = Math.round(selectedRideMetrics.hm);
+        data.realEfficiency = selectedRideMetrics.efficiency.efficiency;
+        /* The recording IS the route: same surface, same grades. */
+        data.realSurface = data.surface;
+        data.realSteepShare = data.climbSummary ? data.climbSummary.steepShare : 0;
         lastFactorSource = 'ride';
     } else {
         const cal2 = getCalibration();
@@ -3029,6 +3096,11 @@ document.getElementById('missionForm').addEventListener('submit', async (e) => {
                 data.realWhPerKm = cal2.whPerKm;
                 data.realKm = Math.round(realKm * 10) / 10;
                 data.realHm = Math.round(realHm);
+                /* Absent on a calibration stored before these existed: the
+                   server then uses its defaults. */
+                if (cal2.efficiency) data.realEfficiency = cal2.efficiency;
+                if (cal2.surface) data.realSurface = cal2.surface;
+                if (Number.isFinite(cal2.steepSharePct)) data.realSteepShare = cal2.steepSharePct;
                 lastFactorSource = 'calibration';
             }
         }
@@ -3067,15 +3139,6 @@ document.getElementById('missionForm').addEventListener('submit', async (e) => {
             srcEl.innerText = analysisSourceLabel
                 ? 'Analysis source: ' + analysisSourceLabel
                 : 'Analysis source: manual entry';
-        }
-
-        const badge = document.getElementById('energyVerdict');
-        if (res.feasible) {
-            badge.innerText = 'FEASIBLE';
-            badge.className = 'badge badge-ok';
-        } else {
-            badge.innerText = 'CRITICAL MARATHON';
-            badge.className = 'badge badge-warn';
         }
 
         renderEnergyCard(res, selectedBattery);
@@ -3129,11 +3192,14 @@ function measureRide(ride) {
         const own = analyzeRideForCalibration({ metadata: ride.metadata, samples: ride.samples });
         const km = parseFloat(own.summary.distanceKm);
         if (!(own.summary.whPerKm > 0) || !(km > 1)) return null;
+        const efficiency = ridesPackEfficiency([ride]);
         return {
             whPerKm: own.summary.whPerKm,
             km: km,
             hm: ride.metadata.ascent || 0,
-            wh: own.summary.totalWh
+            wh: own.summary.totalWh,
+            efficiency: efficiency,
+            packWh: own.summary.totalWh / efficiency.efficiency
         };
     } catch (e) {
         return null;
@@ -3152,17 +3218,7 @@ function analyzeSelectedRide(index) {
     routePoints = [];
     destroyRouteMap();
 
-    /* GPS track of the ride, in the format route-file.js uses. */
-    const points = [];
-    ride.samples.forEach((s) => {
-        if (Number.isFinite(s.latitude) && Number.isFinite(s.longitude)) {
-            points.push({
-                lat: s.latitude,
-                lon: s.longitude,
-                ele: Number.isFinite(s.altitude) ? s.altitude : null
-            });
-        }
-    });
+    const points = rideTrackPoints(ride);
 
     if (points.length > 1 && typeof AvinoxRoute !== 'undefined') {
         routeStats = AvinoxRoute.computeStats(points);
@@ -3176,6 +3232,14 @@ function analyzeSelectedRide(index) {
         if (odoKm > 0.1 && routeStats.ok) {
             routeStats.gpsDistanceKm = routeStats.distanceKm;
             routeStats.distanceKm = odoKm;
+        }
+        /* Same for the gain: the ride's own ascent is what its measured
+           consumption was spent on, so a replay compares the recording with
+           itself instead of with a GPS re-derivation of it. */
+        const ascent = ride.metadata.ascent || 0;
+        if (ascent > 0 && routeStats.ok && routeStats.elevationStatus === 'available') {
+            routeStats.gpsElevationGainM = routeStats.elevationGainM;
+            routeStats.elevationGainM = ascent;
         }
         /* This ride's own measured consumption: the analysis of a recording
            uses the recording's own numbers, not the average over the library
@@ -3738,10 +3802,22 @@ function renderEnergyCard(res, selectedBattery) {
     const measured = (lastFactorSource === 'ride' && selectedRideMetrics
         && Number.isFinite(selectedRideMetrics.wh)) ? selectedRideMetrics : null;
 
+    /* One number drives the headline, the verdict and the cushion: for a
+       recording the battery energy it actually used, otherwise the estimate. */
+    const used = measured ? Math.round(measured.packWh) : en.estimated;
+    const feasible = measured ? used <= res.usableWh : res.feasible;
+    const verdict = document.getElementById('energyVerdict');
+    if (verdict) {
+        verdict.innerText = feasible ? 'FEASIBLE' : 'CRITICAL MARATHON';
+        verdict.className = 'badge ' + (feasible ? 'badge-ok' : 'badge-warn');
+    }
+
     if (measured) {
         set('energyUseTitle', 'Measured use');
-        set('energyEstimated', Math.round(measured.wh));
-        set('energyRange', 'real · ' + measured.whPerKm + ' Wh/km');
+        set('energyEstimated', used);
+        set('energyRange', 'from the battery · ' + Math.round(measured.wh) + ' Wh motor at '
+            + Math.round(measured.efficiency.efficiency * 100) + '%'
+            + (measured.efficiency.measured ? '' : ' (default)'));
         set('energyBaseline', 'Model projection: ' + en.estimated + ' Wh (' + en.low + '–' + en.high + ' Wh)');
     } else {
         set('energyUseTitle', 'Estimated use');
@@ -3751,8 +3827,8 @@ function renderEnergyCard(res, selectedBattery) {
     }
     set('energyUsable', res.usableWh);
     set('energyPack', 'of ' + selectedBattery + ' Wh pack');
-    set('energyCushion', 'Safety cushion: ' + Math.max(0, res.usableWh - en.estimated) + ' Wh remaining at the finish');
-    set('energyDistributionTotal', en.estimated + ' Wh');
+    set('energyCushion', 'Safety cushion: ' + Math.max(0, res.usableWh - used) + ' Wh remaining at the finish');
+    set('energyDistributionTotal', used + ' Wh');
 
     const reserveBadge = document.getElementById('energyReserveBadge');
     if (reserveBadge) {
