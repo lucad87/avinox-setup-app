@@ -1,6 +1,5 @@
 let rangeChartInstance = null;
 let runtimeChartInstance = null;
-let missionPieChartInstance = null;
 let stockChartInstance = null;
 
 /* ---- Personal calibration (Phase 2A) ----------------------------------- */
@@ -28,6 +27,240 @@ function setCalibration(cal) {
         else localStorage.removeItem(CALIBRATION_KEY);
     } catch (e) { /* ignore */ }
     renderCalibrationState();
+}
+
+/* ---- Loaded files on this device (IndexedDB) ---------------------------- */
+/* The calibration is a measurement and survives a refresh; the files it was
+   measured FROM used to vanish with it, which made the two look
+   inconsistent. The raw bytes of the loaded recordings and of the loaded
+   route file are now kept locally (IndexedDB, never uploaded) and re-parsed
+   on the next visit, so a refresh no longer throws away what the user just
+   loaded. Clear all data removes them too. */
+
+const IDB_NAME = 'avinox';
+const IDB_STORE = 'files';
+const IDB_VERSION = 1;
+
+function idbAvailable() {
+    return typeof indexedDB !== 'undefined' && !!indexedDB;
+}
+
+function idbOpen() {
+    return new Promise((resolve, reject) => {
+        if (!idbAvailable()) { reject(new Error('no-indexeddb')); return; }
+        const req = indexedDB.open(IDB_NAME, IDB_VERSION);
+        req.onupgradeneeded = () => {
+            const db = req.result;
+            if (!db.objectStoreNames.contains(IDB_STORE)) db.createObjectStore(IDB_STORE, { keyPath: 'id' });
+        };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+    });
+}
+
+function idbWrite(records) {
+    /* One transaction for the whole batch: a restore must not be half-applied. */
+    return idbOpen().then((db) => new Promise((resolve, reject) => {
+        const tx = db.transaction(IDB_STORE, 'readwrite');
+        const store = tx.objectStore(IDB_STORE);
+        records.forEach((r) => store.put(r));
+        tx.oncomplete = () => { db.close(); resolve(); };
+        tx.onerror = () => { db.close(); reject(tx.error); };
+    })).catch(() => { /* storage unavailable: the session still works */ });
+}
+
+function idbReadAll() {
+    return idbOpen().then((db) => new Promise((resolve, reject) => {
+        const tx = db.transaction(IDB_STORE, 'readonly');
+        const req = tx.objectStore(IDB_STORE).getAll();
+        req.onsuccess = () => { db.close(); resolve(req.result || []); };
+        req.onerror = () => { db.close(); reject(req.error); };
+    })).catch(() => []);
+}
+
+function idbRemove(ids) {
+    return idbOpen().then((db) => new Promise((resolve, reject) => {
+        const tx = db.transaction(IDB_STORE, 'readwrite');
+        const store = tx.objectStore(IDB_STORE);
+        ids.forEach((id) => store.delete(id));
+        tx.oncomplete = () => { db.close(); resolve(); };
+        tx.onerror = () => { db.close(); reject(tx.error); };
+    })).catch(() => { /* ignore */ });
+}
+
+function idbClearAll() {
+    return idbOpen().then((db) => new Promise((resolve, reject) => {
+        const tx = db.transaction(IDB_STORE, 'readwrite');
+        tx.objectStore(IDB_STORE).clear();
+        tx.oncomplete = () => { db.close(); resolve(); };
+        tx.onerror = () => { db.close(); reject(tx.error); };
+    })).catch(() => { /* ignore */ });
+}
+
+/* A stored file: the raw bytes, so the parser stays the single source of
+   truth and an import from another device cannot smuggle in stale numbers. */
+function storeFile(kind, name, bytes, type) {
+    const id = kind === 'route' ? 'route' : 'ride:' + name;
+    return idbWrite([{ id: id, kind: kind, name: name, type: type || '', bytes: bytes, savedAt: Date.now() }]);
+}
+
+function storeSelectedRide(index) {
+    return idbWrite([{ id: 'state', kind: 'state', selectedIndex: index, savedAt: Date.now() }]);
+}
+
+async function storedRides() {
+    const all = await idbReadAll();
+    return all.filter((r) => r.kind === 'ride').sort((a, b) => (a.savedAt || 0) - (b.savedAt || 0));
+}
+
+/* Bring back what the user had loaded, through the same load path (so there
+   is one parser, one analysis, one renderer) but quietly: no notice, no
+   "rides analyzed" dialog - the page should simply be as they left it. */
+async function restoreStoredFiles() {
+    if (!idbAvailable()) return;
+    let all = [];
+    try { all = await idbReadAll(); } catch (e) { return; }
+    if (!all.length) return;
+    const route = all.find((r) => r.kind === 'route');
+    const rides = all.filter((r) => r.kind === 'ride').sort((a, b) => (a.savedAt || 0) - (b.savedAt || 0));
+    const state = all.find((r) => r.kind === 'state');
+
+    try {
+        if (route && route.bytes) {
+            setFileStatus('Restoring the route you had loaded…', 'info');
+            await handleRouteFile(new File([route.bytes], route.name, { type: route.type || '' }), { restore: true });
+            setFileStatus('Restored ' + route.name + ' from this device.', 'ok');
+            return;
+        }
+        if (rides.length) {
+            setFileStatus('Restoring your rides…', 'info');
+            const files = rides.map((r) => new File([r.bytes], r.name, { type: r.type || '' }));
+            await handleProtoFiles(files, {
+                restore: true,
+                selectedIndex: state && typeof state.selectedIndex === 'number' ? state.selectedIndex : undefined
+            });
+            setFileStatus('Restored ' + loadedRides.length + ' ride(s) from this device.', 'ok');
+        }
+    } catch (e) { /* a corrupt record must not break the page */ }
+}
+
+/* ---- Export / import the stored data ------------------------------------ */
+/* The export is a single JSON file: the raw bytes of everything stored on
+   this device (base64) plus the calibration. It is the backup / move-to-
+   another-browser path, and it is local: nothing leaves the machine. */
+
+function bytesToBase64(bytes) {
+    const arr = new Uint8Array(bytes);
+    let out = '';
+    const chunk = 0x8000;   // avoid blowing the argument limit on big files
+    for (let i = 0; i < arr.length; i += chunk) {
+        out += String.fromCharCode.apply(null, arr.subarray(i, i + chunk));
+    }
+    return btoa(out);
+}
+
+function base64ToBytes(b64) {
+    const bin = atob(b64);
+    const arr = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    return arr;
+}
+
+function showToast(msg) {
+    const el = document.createElement('div');
+    el.className = 'toast';
+    el.setAttribute('role', 'status');
+    el.innerText = msg;
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 5200);
+}
+
+async function exportData() {
+    const all = await idbReadAll();
+    const files = all.filter((r) => r.kind === 'ride' || r.kind === 'route');
+    const cal = getCalibration();
+    if (!files.length && !cal) {
+        showToast('Nothing stored yet: load a route or a ride first.');
+        return;
+    }
+    const state = all.find((r) => r.kind === 'state');
+    const payload = {
+        app: 'avinox-calc',
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        calibration: cal || null,
+        state: state && typeof state.selectedIndex === 'number' ? state.selectedIndex : 0,
+        files: files.map((r) => ({
+            kind: r.kind,
+            name: r.name,
+            type: r.type || '',
+            savedAt: r.savedAt || 0,
+            base64: bytesToBase64(r.bytes)
+        }))
+    };
+    const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'avinox-data-' + new Date().toISOString().slice(0, 10) + '.json';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    showToast('Exported ' + files.length + ' file(s)' + (cal ? ' and the calibration' : '') + '.');
+}
+
+async function importData(file) {
+    let payload;
+    try {
+        payload = JSON.parse(await file.text());
+    } catch (e) {
+        showToast('That file is not readable JSON.');
+        return;
+    }
+    if (!payload || payload.app !== 'avinox-calc' || !Array.isArray(payload.files)) {
+        showToast('That is not an Avinox Calc export.');
+        return;
+    }
+    const count = payload.files.length;
+    if (!window.confirm('Import ' + count + ' file(s) from this export? It replaces what is stored on this device and reloads the app.')) return;
+    try {
+        await idbClearAll();
+        const records = payload.files.map((f) => ({
+            id: f.kind === 'route' ? 'route' : 'ride:' + f.name,
+            kind: f.kind,
+            name: f.name,
+            type: f.type || '',
+            bytes: base64ToBytes(f.base64).buffer,
+            savedAt: f.savedAt || Date.now()
+        }));
+        if (typeof payload.state === 'number') {
+            records.push({ id: 'state', kind: 'state', selectedIndex: payload.state, savedAt: Date.now() });
+        }
+        if (payload.calibration && payload.calibration.factor > 0) {
+            try { localStorage.setItem(CALIBRATION_KEY, JSON.stringify(payload.calibration)); } catch (e) { /* ignore */ }
+        }
+        await idbWrite(records);
+        showToast('Imported ' + count + ' file(s): reloading…');
+        setTimeout(() => location.reload(), 800);
+    } catch (e) {
+        showToast('Import failed.');
+    }
+}
+
+function initDataTransfer() {
+    const exp = document.getElementById('exportDataBtn');
+    if (exp) exp.addEventListener('click', exportData);
+    const imp = document.getElementById('importDataBtn');
+    const input = document.getElementById('importDataInput');
+    if (imp && input) {
+        imp.addEventListener('click', () => input.click());
+        input.addEventListener('change', () => {
+            const f = input.files && input.files[0];
+            if (f) importData(f);
+            input.value = '';
+        });
+    }
 }
 
 function renderCalibrationState() {
@@ -59,8 +292,26 @@ function renderCalibrationState() {
     if (cal) {
         badge.classList.remove('hidden');
         badge.innerText = cal.whPerKm ? cal.whPerKm + ' Wh/km' : 'calibrated';
+        /* The Tuner's own invitation disappears as soon as there is a factor. */
+        const cta = document.getElementById('tunerCalibrationCta');
+        if (cta) cta.classList.add('hidden');
+        const calState = document.getElementById('calibrationState');
+        if (calState) {
+            const count = loadedRides.length;
+            calState.innerText = (cal.whPerKm ? cal.whPerKm + ' Wh/km · ' : '')
+                + (count === 0 ? 'saved' : (count === 1 ? 'this ride' : 'average of ' + count + ' rides'));
+        }
         if (tunerState) {
-            tunerState.innerText = (cal.whPerKm ? cal.whPerKm + ' Wh/km · ' : '') + cal.rideLabel;
+            /* Say what the factor covers: the Tuner's number is the average
+               over the loaded rides (or the stored one), while a single
+               recording has its own - they legitimately differ. */
+            const km = cal.rideLabel ? String(cal.rideLabel).replace(/^\d+ ride\(s\) · /, '') : '';
+            const count = loadedRides.length;
+            let scope;
+            if (count === 0) scope = 'saved · ' + (cal.rideLabel || '');
+            else if (count === 1) scope = 'this ride · ' + km;
+            else scope = 'average of ' + count + ' rides · ' + km;
+            tunerState.innerText = (cal.whPerKm ? cal.whPerKm + ' Wh/km · ' : '') + scope;
             tunerState.className = 'kv-value status-ok';
         }
         if (summary) summary.classList.remove('hidden');
@@ -96,6 +347,11 @@ function renderCalibrationState() {
             tunerState.innerText = 'not calibrated';
             tunerState.className = 'kv-value';
         }
+        /* No factor at all: invite the user to the Route loader. */
+        const cta = document.getElementById('tunerCalibrationCta');
+        if (cta) cta.classList.remove('hidden');
+        const calState = document.getElementById('calibrationState');
+        if (calState) calState.innerText = '';
         if (summary) summary.classList.add('hidden');
         if (emptyMsg) emptyMsg.classList.remove('hidden');
         if (note) note.classList.add('hidden');
@@ -119,9 +375,25 @@ const MAP_CHANNELS = {
     heartRate: { label: 'bpm', get: (s) => s.heartRate, ramp: ['#f2b3bd', '#ce3a4e'], step: 0 }
 };
 
+/* How many points the ride map draws. The planned-route map draws every point
+   of the file, and the two must feel the same: with a low cap a 20 km ride was
+   drawn from ~600 points, so the track looked faceted and the cursor jumped
+   between them. 3000 points is roughly one per screen pixel for a whole-route
+   view, and rebuilding the data (every channel change) still takes ~15 ms. */
+const RIDE_MAP_MAX_POINTS = 3000;
+
+/* A segment is only drawn when the position data supports it: two fixes
+   further apart than this (in time, or farther than GAP_M whatever the clock
+   says) leave the path in between unknown. Drawing a straight line across it
+   invents a route the bike never took - one real recording lost GPS for 14
+   minutes and came back 2.6 km away. */
+const RIDE_GAP_DT_S = 20;
+const RIDE_GAP_M = 400;
+let rideMapGaps = [];       // [{ km, m, dt }]
+
 function buildRouteGeoJSON(samples, channelId) {
     const ch = MAP_CHANNELS[channelId] || MAP_CHANNELS.speed;
-    const step = Math.max(1, Math.floor(samples.length / 600));
+    const step = Math.max(1, Math.floor(samples.length / RIDE_MAP_MAX_POINTS));
     const pts = [];
     for (let i = 0; i < samples.length; i += step) {
         const s = samples[i];
@@ -139,16 +411,24 @@ function buildRouteGeoJSON(samples, channelId) {
     if (hi - lo < 1e-6) hi = lo + 1;
 
     const features = [];
+    rideMapGaps = [];
     for (let i = 1; i < pts.length; i++) {
         const a = pts[i - 1], b = pts[i];
         const va = ch.get(a), vb = ch.get(b);
         const v = Number.isFinite(vb) ? vb : va;
         if (!Number.isFinite(v)) continue;
+        /* Break the track where the position data cannot support a segment:
+           the stretch is kept as a gap feature and drawn dashed, so the ride
+           stays readable without pretending the bike rode a straight line. */
+        const dt = (b.timestamp && a.timestamp) ? Math.abs(b.timestamp - a.timestamp) : 0;
+        const segM = AvinoxRoute.haversine({ lat: a.latitude, lon: a.longitude }, { lat: b.latitude, lon: b.longitude });
+        const isGap = dt > RIDE_GAP_DT_S || segM > RIDE_GAP_M;
+        if (isGap) rideMapGaps.push({ km: Number.isFinite(b.distanceKm) ? b.distanceKm : 0, m: segM, dt: dt });
         features.push({
             type: 'Feature',
             /* i = index of this point in rideMapPoints: lets a map hover
-               map back to the graph cursor. */
-            properties: { v, i },
+               map back to the graph cursor. gap marks an unknown stretch. */
+            properties: { v, i, gap: isGap ? 1 : 0 },
             geometry: { type: 'LineString', coordinates: [[a.longitude, a.latitude], [b.longitude, b.latitude]] }
         });
     }
@@ -162,41 +442,67 @@ function buildRideMap(ride) {
     const { geojson, lo, hi, ch } = buildRouteGeoJSON(ride.samples, channelId);
     if (!rideMapPoints.length) return;
 
-    const colorExpr = ['interpolate', ['linear'], ['get', 'v'], lo, ch.ramp[0], hi, ch.ramp[1]];
+    /* Gradient uses the same six bands as the planned-route map; the other
+       channels keep a continuous ramp, which is the right tool for a smooth
+       quantity. */
+    const isGradient = channelId === 'gradient';
+    const colorExpr = isGradient
+        ? gradeColorExpression()
+        : ['interpolate', ['linear'], ['get', 'v'], lo, ch.ramp[0], hi, ch.ramp[1]];
 
-    /* Legend: min/max of the selected channel. */
+    /* Legend: the band swatches for the gradient, the min/max ramp otherwise. */
     const legend = document.getElementById('mapLegend');
     if (legend) {
-        legend.innerHTML =
-            '<span class="legend-swatch" style="background:linear-gradient(90deg,' + ch.ramp[0] + ',' + ch.ramp[1] + ')"></span>' +
-            '<span>' + Math.round(lo) + ' – ' + Math.round(hi) + ' ' + (ch.label || '') + '</span>';
+        legend.innerHTML = isGradient
+            ? gradeLegendHtml()
+            : '<span class="legend-swatch" style="background:linear-gradient(90deg,' + ch.ramp[0] + ',' + ch.ramp[1] + ')"></span>'
+                + '<span>' + Math.round(lo) + ' – ' + Math.round(hi) + ' ' + (ch.label || '') + '</span>';
+    }
+
+    /* Say out loud why part of the track is dashed. */
+    const gapsEl = document.getElementById('rideMapGaps');
+    if (gapsEl) {
+        if (rideMapGaps.length) {
+            const totalKm = rideMapGaps.reduce((a, g) => a + g.m, 0) / 1000;
+            gapsEl.classList.remove('hidden');
+            gapsEl.innerText = rideMapGaps.length + (rideMapGaps.length === 1 ? ' gap' : ' gaps')
+                + ' in the GPS fixes (' + totalKm.toFixed(1) + ' km) — drawn dashed: the recording has no position there,'
+                + ' so the bike\'s real path in between is unknown.';
+        } else {
+            gapsEl.classList.add('hidden');
+            gapsEl.innerText = '';
+        }
     }
 
     if (!rideMap) {
         rideMap = new maplibregl.Map({
             container: el,
-            style: {
-                version: 8,
-                sources: {
-                    osm: {
-                        type: 'raster',
-                        tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-                        tileSize: 256,
-                        attribution: '© OpenStreetMap contributors'
-                    }
-                },
-                layers: [{ id: 'osm', type: 'raster', source: 'osm' }]
-            },
+            style: osmRasterStyle(),
             center: [rideMapPoints[0].longitude, rideMapPoints[0].latitude],
             zoom: 12,
             attributionControl: { compact: true }
         });
         rideMap.on('load', () => {
             rideMap.addSource('route', { type: 'geojson', data: geojson });
+            /* Stretches with no position data: dashed and muted, so the ride
+               keeps its shape without claiming a path it never recorded. */
+            rideMap.addLayer({
+                id: 'route-gaps',
+                type: 'line',
+                source: 'route',
+                filter: ['==', ['get', 'gap'], 1],
+                layout: { 'line-cap': 'round', 'line-join': 'round' },
+                paint: {
+                    'line-width': 2,
+                    'line-color': cssVar('--muted'),
+                    'line-dasharray': [1.5, 2]
+                }
+            });
             rideMap.addLayer({
                 id: 'route-line',
                 type: 'line',
                 source: 'route',
+                filter: ['!=', ['get', 'gap'], 1],
                 layout: { 'line-cap': 'round', 'line-join': 'round' },
                 paint: { 'line-width': 4, 'line-color': colorExpr }
             });
@@ -231,6 +537,7 @@ function buildRideMap(ride) {
     } else {
         rideMap.getSource('route').setData(geojson);
         rideMap.setPaintProperty('route-line', 'line-color', colorExpr);
+        rideMap.setPaintProperty('route-gaps', 'line-color', cssVar('--muted'));
         rideMap.getSource('start').setData({ type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: [rideMapPoints[0].longitude, rideMapPoints[0].latitude] } }] });
         fitRouteBounds();
     }
@@ -254,6 +561,366 @@ function updateMapCursor(idx, total) {
     }
     const p = rideMapPoints[Math.min(rideMapPoints.length - 1, Math.round((idx / Math.max(1, total - 1)) * (rideMapPoints.length - 1)))];
     src.setData({ type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: [p.longitude, p.latitude] } }] });
+}
+
+/* ---- Route Map (planned track, coloured by gradient) ------------------ */
+/* A recording has sensors, so its map can be coloured by any channel; a
+   planned GPX/KML has only position and elevation, so the informative
+   colouring is the gradient - measured with the SAME 25 m window as the
+   grade bars, so the map and the bars can never disagree. */
+
+let routeMap = null;
+let routePoints = [];      // merged points of the loaded route file
+/* Own numbers of the recording being analysed ({whPerKm, km, hm}), or null
+   when the analysis is a planned route or a hand-typed one. */
+let selectedRideMetrics = null;
+/* What the last analysis was scaled by: 'ride' or 'calibration'. */
+let lastFactorSource = null;
+
+const GRADE_COLOR_VAR = {
+    descent: '--mode-auto', flat: '--mode-eco', rolling: '--accent-hover',
+    climb: '--mode-trail', steep: '--mode-turbo', extreme: '--mode-custom'
+};
+
+function cssVar(name) {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || '#888888';
+}
+
+function gradeBandColor(key) {
+    return cssVar(GRADE_COLOR_VAR[key] || '--muted');
+}
+
+/* ---- The six grade bands, shared by BOTH maps -------------------------- */
+/* The planned-route map and the ride map (when it is coloured by gradient)
+   must show climbs and descents the same way: same bands, same colours, same
+   legend. Otherwise the same hill looks different depending on which file the
+   user loaded. */
+function gradeColorExpression() {
+    return ['step', ['get', 'v'],
+        gradeBandColor('descent'),
+        -2, gradeBandColor('flat'),
+        3, gradeBandColor('rolling'),
+        7, gradeBandColor('climb'),
+        12, gradeBandColor('steep'),
+        18, gradeBandColor('extreme')];
+}
+
+function gradeLegendHtml() {
+    return AvinoxRoute.gradeBands.map((b) => '<span><span class="band-swatch" style="background:'
+        + gradeBandColor(b.key) + '"></span>' + b.label + '</span>').join('');
+}
+
+/* The OSM raster style, shared by both maps. */
+function osmRasterStyle() {
+    return {
+        version: 8,
+        sources: {
+            osm: {
+                type: 'raster',
+                tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+                tileSize: 256,
+                attribution: '© OpenStreetMap contributors'
+            }
+        },
+        layers: [{ id: 'osm', type: 'raster', source: 'osm' }]
+    };
+}
+
+function pointsFeature(p) {
+    return {
+        type: 'FeatureCollection',
+        features: [{ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: [p.lon, p.lat] } }]
+    };
+}
+
+function emptyFeature() {
+    return { type: 'FeatureCollection', features: [] };
+}
+
+/* One segment per consecutive pair, carrying the gradient of its window.
+   Segments are never drawn across two geometries: that would invent a
+   straight line between unrelated track parts. */
+function buildGradeSegments(profile) {
+    const features = [];
+    const pts = profile.points;
+    for (let i = 1; i < pts.length; i++) {
+        const a = pts[i - 1];
+        const b = pts[i];
+        if (a.segmentId !== b.segmentId) continue;
+        const grade = Number.isFinite(b.grade) ? b.grade : (Number.isFinite(a.grade) ? a.grade : 0);
+        features.push({
+            type: 'Feature',
+            properties: { v: grade, km: b.distanceM / 1000, ele: b.ele },
+            geometry: { type: 'LineString', coordinates: [[a.lon, a.lat], [b.lon, b.lat]] }
+        });
+    }
+    return { type: 'FeatureCollection', features };
+}
+
+function clearRouteHover() {
+    setRouteCursor(null);
+}
+
+function routeMapHover(e) {
+    if (!routeMap) return;
+    /* A 4 px line is hard to hit: the cursor reads an invisible wide line
+       drawn over it, so hovering is forgiving (and works on touch). */
+    const layers = routeMap.getLayer('route-hit') ? ['route-hit', 'route-line'] : ['route-line'];
+    const hits = routeMap.queryRenderedFeatures(e.point, { layers: layers });
+    if (!hits.length) { clearRouteHover(); return; }
+    const km = Number(hits[0].properties.km);
+    if (!Number.isFinite(km)) { clearRouteHover(); return; }
+    setRouteCursor(km);
+}
+
+function fitRouteMapBounds() {
+    if (!routeMap || routePoints.length < 2) return;
+    const bounds = new maplibregl.LngLatBounds();
+    routePoints.forEach((p) => bounds.extend([p.lon, p.lat]));
+    routeMap.fitBounds(bounds, { padding: 30, duration: 0 });
+}
+
+/* Draw (or redraw) the planned route on its map. Only called for route
+   files: a recording has its own map with the channel selector. */
+function renderRouteMap(points) {
+    const panel = document.getElementById('routeMapPanel');
+    const el = document.getElementById('routeMap');
+    if (!panel || !el || typeof maplibregl === 'undefined' || typeof AvinoxRoute === 'undefined') return;
+    if (!points || points.length < 3 || !AvinoxRoute.computeGradeProfile) {
+        panel.classList.add('hidden');
+        return;
+    }
+
+    const profile = AvinoxRoute.computeGradeProfile(points);
+    if (!profile.ok) {
+        /* No usable elevation: no honest colouring, so no map card. */
+        panel.classList.add('hidden');
+        return;
+    }
+    panel.classList.remove('hidden');
+
+    routeCursorPoints = buildRouteCursorIndex(profile);
+
+    const mapState = document.getElementById('routeMapState');
+    if (mapState) {
+        mapState.innerText = (profile.distanceM / 1000).toFixed(1) + ' km · coloured by gradient';
+    }
+
+    const bands = AvinoxRoute.gradeBands;
+    const colorExpr = gradeColorExpression();
+
+    const data = buildGradeSegments(profile);
+    const first = profile.points[0];
+    const last = profile.points[profile.points.length - 1];
+    const ends = {
+        type: 'FeatureCollection',
+        features: [
+            { type: 'Feature', properties: { c: gradeBandColor('flat') }, geometry: { type: 'Point', coordinates: [first.lon, first.lat] } },
+            { type: 'Feature', properties: { c: cssVar('--mode-turbo') }, geometry: { type: 'Point', coordinates: [last.lon, last.lat] } }
+        ]
+    };
+
+    const legend = document.getElementById('routeMapLegend');
+    if (legend) legend.innerHTML = gradeLegendHtml();
+    const winEl = document.getElementById('routeMapWindow');
+    if (winEl) winEl.innerText = String(profile.windowM);
+
+    if (!routeMap) {
+        routeMap = new maplibregl.Map({
+            container: el,
+            style: osmRasterStyle(),
+            center: [first.lon, first.lat],
+            zoom: 12,
+            attributionControl: { compact: true }
+        });
+        routeMap.on('load', () => {
+            routeMap.addSource('route', { type: 'geojson', data: data });
+            routeMap.addLayer({
+                id: 'route-line',
+                type: 'line',
+                source: 'route',
+                layout: { 'line-cap': 'round', 'line-join': 'round' },
+                paint: { 'line-width': 4, 'line-color': colorExpr }
+            });
+            /* Invisible, wider twin: only for a forgiving hover target. */
+            routeMap.addLayer({
+                id: 'route-hit',
+                type: 'line',
+                source: 'route',
+                layout: { 'line-cap': 'round', 'line-join': 'round' },
+                paint: { 'line-width': 18, 'line-color': '#000000', 'line-opacity': 0 }
+            });
+            routeMap.addSource('ends', { type: 'geojson', data: ends });
+            routeMap.addLayer({
+                id: 'route-ends',
+                type: 'circle',
+                source: 'ends',
+                paint: {
+                    'circle-radius': 5,
+                    'circle-color': ['get', 'c'],
+                    'circle-stroke-color': '#ffffff',
+                    'circle-stroke-width': 2
+                }
+            });
+            routeMap.addSource('route-cursor', { type: 'geojson', data: emptyFeature() });
+            routeMap.addLayer({
+                id: 'route-cursor',
+                type: 'circle',
+                source: 'route-cursor',
+                paint: {
+                    'circle-radius': 7,
+                    'circle-color': '#5AF822',
+                    'circle-stroke-color': '#1E252D',
+                    'circle-stroke-width': 2
+                }
+            });
+            routeMap.on('mousemove', routeMapHover);
+            routeMap.on('mouseout', clearRouteHover);
+            fitRouteMapBounds();
+        });
+    } else {
+        const src = routeMap.getSource('route');
+        if (src) src.setData(data);
+        if (routeMap.getLayer('route-line')) routeMap.setPaintProperty('route-line', 'line-color', colorExpr);
+        const endsSrc = routeMap.getSource('ends');
+        if (endsSrc) endsSrc.setData(ends);
+        const cursorSrc = routeMap.getSource('route-cursor');
+        if (cursorSrc) cursorSrc.setData(emptyFeature());
+        fitRouteMapBounds();
+    }
+
+    /* A new track means the old cursor position is meaningless. */
+    setRouteCursor(null);
+}
+
+function destroyRouteMap() {
+    if (routeMap) { routeMap.remove(); routeMap = null; }
+    routeCursorPoints = [];
+    setRouteCursor(null);
+    const panel = document.getElementById('routeMapPanel');
+    if (panel) panel.classList.add('hidden');
+    const legend = document.getElementById('routeMapLegend');
+    if (legend) legend.innerHTML = '';
+    const readout = document.getElementById('routeMapReadout');
+    if (readout) readout.innerText = '';
+}
+
+/* ---- Route cursor: elevation profile <-> map -------------------------- */
+/* The two directions share ONE cursor, keyed by distance along the route:
+   the chart plots one point per elevation sample while the map is drawn
+   from the merged track, so an index would not mean the same thing on both
+   sides. Distance always does. */
+
+let routeCursorKm = null;
+let routeCursorPoints = [];   // [{km, lat, lon, ele, grade}] sorted by km
+
+function buildRouteCursorIndex(profile) {
+    const out = [];
+    profile.points.forEach((p, i) => {
+        /* Points without a cumulative distance (no usable elevation there)
+           are not on the track as far as the cursor is concerned. */
+        if (i > 0 && !(p.distanceM > 0)) return;
+        out.push({ km: p.distanceM / 1000, lat: p.lat, lon: p.lon, ele: p.ele, grade: p.grade });
+    });
+    return out;
+}
+
+function nearestRouteCursorPoint(km) {
+    if (!routeCursorPoints.length) return null;
+    let lo = 0;
+    let hi = routeCursorPoints.length - 1;
+    while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (routeCursorPoints[mid].km < km) lo = mid + 1; else hi = mid;
+    }
+    const a = routeCursorPoints[Math.max(0, lo - 1)];
+    const b = routeCursorPoints[lo];
+    if (!a) return b;
+    if (!b) return a;
+    return Math.abs(b.km - km) < Math.abs(a.km - km) ? b : a;
+}
+
+/* Dashed vertical line on the elevation chart, at a distance (km). The ride
+   graphs use a category axis; this chart has a linear km axis, so the pixel
+   has to come from the scale. */
+function drawElevationCursor(km) {
+    const chart = elevationChartInstance;
+    if (!chart || !chart.scales || !chart.scales.x) return;
+    const ov = ensureCursorOverlay(chart);
+    if (!ov) return;
+    const ctx = ov.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, ov.width, ov.height);
+    if (km == null) return;
+    const area = chart.chartArea;
+    if (!area) return;
+    const px = chart.scales.x.getPixelForValue(km);
+    if (!Number.isFinite(px) || px < area.left - 1 || px > area.right + 1) return;
+    const x = (px - area.left) * dpr;
+    ctx.beginPath();
+    ctx.setLineDash([4 * dpr, 3 * dpr]);
+    ctx.lineWidth = dpr;
+    ctx.strokeStyle = cssVar('--muted');
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, ov.height);
+    ctx.stroke();
+}
+
+/* The single cursor: chart line, map dot and readout always agree. */
+function setRouteCursor(km) {
+    routeCursorKm = (typeof km === 'number' && Number.isFinite(km)) ? km : null;
+    const p = routeCursorKm == null ? null : nearestRouteCursorPoint(routeCursorKm);
+    drawElevationCursor(routeCursorKm);
+
+    const src = routeMap && routeMap.getSource ? routeMap.getSource('route-cursor') : null;
+    if (src) {
+        src.setData(p
+            ? { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: [p.lon, p.lat] } }] }
+            : emptyFeature());
+    }
+    const readout = document.getElementById('routeMapReadout');
+    if (readout) {
+        readout.innerText = p
+            ? (Number.isFinite(p.km) ? 'km ' + p.km.toFixed(1) + ' · ' : '')
+              + (Number.isFinite(p.ele) ? Math.round(p.ele) + ' m · ' : '')
+              + (Number.isFinite(p.grade) ? (p.grade >= 0 ? '+' : '') + p.grade.toFixed(1) + '%' : '')
+            : '';
+    }
+}
+
+/* Chart -> map. The handler reads the live chart instance (the chart is
+   recreated on every file load, the canvas is not) and wires once. */
+/* A recording has no elevation profile of its own: the data lives in the
+   "Elevation & Gradient" graph. Hide the panel and drop the chart, so nothing
+   stale is left behind when switching between a route file and a ride. */
+function hideElevationProfile() {
+    if (elevationChartInstance) { elevationChartInstance.destroy(); elevationChartInstance = null; }
+    const panel = document.getElementById('elevationPanel');
+    if (panel) panel.classList.add('hidden');
+    const state = document.getElementById('elevationState');
+    if (state) state.innerText = '';
+}
+
+/* ---- Elevation profile cursor (planned routes only) ------------------- */
+/* For a route file the profile is the only elevation view, so hovering it
+   moves the cursor on the route map (and the other way round). A recording
+   has the graphs instead - see hideElevationProfile(). */
+
+function wireElevationCursor(chart) {
+    const canvas = chart && chart.canvas;
+    if (!canvas || canvas.dataset.cursorWired === '1') return;
+    canvas.dataset.cursorWired = '1';
+    canvas.addEventListener('mousemove', (e) => {
+        const c = elevationChartInstance;
+        if (!c || !c.scales || !c.scales.x || !routeCursorPoints.length) return;
+        const area = c.chartArea;
+        if (!area || e.offsetX < area.left || e.offsetX > area.right) return;
+        const km = c.scales.x.getValueForPixel(e.offsetX);
+        if (!Number.isFinite(km)) return;
+        setRouteCursor(km);
+    });
+    canvas.addEventListener('mouseleave', () => setRouteCursor(null));
 }
 
 /* ---- Ride Insights (Phase 2A): ARE-style graph groups ----------------- */
@@ -710,9 +1377,9 @@ function togglePin(graphId, card) {
     if (i >= 0) {
         pinned.splice(i, 1);
     } else {
-        /* Max 2 pins: more would stack past the viewport height and
-           overlap each other. */
-        if (pinned.length >= 2) {
+        /* One pinned graph only: a single chart is what stays readable while
+           scrolling, and past that the pins start to overlap each other. */
+        if (pinned.length >= 1) {
             const card2 = document.querySelector('#rideGraphs .ride-graph.pinned');
             if (card2) {
                 card2.classList.remove('pinned');
@@ -783,6 +1450,20 @@ function renderRideInsights() {
 
     if (hasRides) buildRideGraphs(loadedRides[selectedRideIndex], lastRideAnalysis);
     if (hasRides) buildRideMap(loadedRides[selectedRideIndex]);
+
+    /* The collapsed header has to say what is behind it. */
+    const graphsWrap = document.getElementById("rideGraphsWrap");
+    const graphCount = graphsWrap ? graphsWrap.querySelectorAll("#rideGraphs .ride-graph").length : 0;
+    const label = document.getElementById("graphsToggleLabel");
+    if (label) label.innerText = graphCount ? "Sensor graphs (" + graphCount + ")" : "Sensor graphs";
+    const state = document.getElementById("rideDataState");
+    if (state) {
+        const r = loadedRides[selectedRideIndex];
+        state.innerText = (hasRides && r)
+            ? [graphCount ? graphCount + " graphs" : "", r.label].filter(Boolean).join(" · ")
+            : "";
+    }
+    updateRouteLoadState();
 }
 
 function openChartModal(title, spec, labels, buckets) {
@@ -821,6 +1502,8 @@ function initCalibration() {
     if (selector) {
         selector.addEventListener('change', () => {
             selectedRideIndex = parseInt(selector.value, 10) || 0;
+            /* Remember which ride the user was on: a refresh restores it. */
+            storeSelectedRide(selectedRideIndex);
             if (loadedRides[selectedRideIndex]) {
                 buildRideGraphs(loadedRides[selectedRideIndex], lastRideAnalysis);
                 buildRideMap(loadedRides[selectedRideIndex]);
@@ -839,6 +1522,11 @@ function initCalibration() {
     if (mapChannel) {
         mapChannel.addEventListener('change', () => {
             if (loadedRides[selectedRideIndex]) buildRideMap(loadedRides[selectedRideIndex]);
+            /* Recolouring the map must not take the map away. The graph that
+               belongs to this channel is only brought into view when the
+               graphs are actually open - and even then the map stays pinned
+               above it, so the user sees the change he just made. */
+            if (!graphsOpen()) return;
             const graphId = CHANNEL_GRAPH[mapChannel.value];
             const card = graphId && document.querySelector('#rideGraphs .ride-graph[data-graph-id="' + graphId + '"]');
             if (!card) return;
@@ -869,10 +1557,11 @@ function initCalibration() {
    file, duplicates skipped (the ride id in the header is stable across
    re-imports and renames), the calibration factor recomputed over all
    rides merged - more rides, better factor. */
-async function handleProtoFiles(files) {
+async function handleProtoFiles(files, opts) {
+    const restore = !!(opts && opts.restore);
     if (!files.length) return;
     try {
-        setFileStatus('Reading ' + files.length + ' ride file(s)…', 'info');
+        if (!restore) setFileStatus('Reading ' + files.length + ' ride file(s)…', 'info');
 
         /* Each file becomes a separate ride in the library: charts show
            one ride at a time (selected in the dropdown). The calibration
@@ -894,12 +1583,17 @@ async function handleProtoFiles(files) {
                 label: (d ? d + ' - ' : '') + km + ' km'
             });
             added.push(file.name);
+            /* Keep the bytes on this device: a refresh must not throw away
+               what the user just loaded. */
+            storeFile('ride', file.name, buf, file.type);
         }
 
         if (!added.length) {
-            setFileStatus(skipped.length === 1
-                ? 'That ride is already loaded.'
-                : 'These rides are already loaded.', 'info');
+            if (!restore) {
+                setFileStatus(skipped.length === 1
+                    ? 'That ride is already loaded.'
+                    : 'These rides are already loaded.', 'info');
+            }
             return;
         }
 
@@ -935,10 +1629,15 @@ async function handleProtoFiles(files) {
             /* A route file and recordings are two different things: loading
                rides drops the loaded GPX/KML and its track. */
             clearRouteFile();
-            setFileStatus('Loaded ' + loadedRides.length + ' ride(s), ' + allSamples.length + ' samples.'
-                + (skipped.length ? ' (' + skipped.length + ' already loaded, skipped)' : ''), 'ok');
+            if (!restore) {
+                setFileStatus('Loaded ' + loadedRides.length + ' ride(s), ' + allSamples.length + ' samples.'
+                    + (skipped.length ? ' (' + skipped.length + ' already loaded, skipped)' : ''), 'ok');
+            }
             renderCalibrationReport(analysis);
-            selectedRideIndex = loadedRides.length - 1;
+            const wantedIndex = opts && typeof opts.selectedIndex === 'number' ? opts.selectedIndex : null;
+            selectedRideIndex = (wantedIndex != null && loadedRides[wantedIndex])
+                ? wantedIndex
+                : loadedRides.length - 1;
             renderRideInsights();
             /* The ride becomes the analyzed route: distance, elevation and
                grade breakdown come from this recording. */
@@ -947,9 +1646,14 @@ async function handleProtoFiles(files) {
                now come from the real ride consumption. */
             const before = lastCalcRes;
             await updateSetup();
-            showRideSummary(before, lastCalcRes, analysis);
+            if (!restore) showRideSummary(before, lastCalcRes, analysis);
+            /* Loaded: shorten the page, with the graphs one click away. A
+               restore does the same silently - the page simply looks the way
+               the user left it. */
+            updateRouteLoadState();
+            collapseAfterLoad('ride', { quiet: restore });
         } catch (err) {
-            setFileStatus(err.message, 'error');
+            if (!restore) setFileStatus(err.message, 'error');
         }
 }
 
@@ -1094,10 +1798,24 @@ function renderCalibrationReport(analysis) {
     const useBtn = document.getElementById('useRideAverages');
     if (useBtn && s.avgCadence && s.avgRiderPower) {
         useBtn.addEventListener('click', () => {
-            document.getElementById('cadence').value = s.avgCadence;
-            document.getElementById('riderPower').value = s.avgRiderPower;
+            const cadenceEl = document.getElementById('cadence');
+            const powerEl = document.getElementById('riderPower');
+            cadenceEl.value = s.avgCadence;
+            powerEl.value = s.avgRiderPower;
             saveForm();
             updateSetup();
+            /* The values went into the Tuner: take the user there and show
+               which fields they landed in, or the click looks like nothing
+               happened (the Tuner is another tab). */
+            switchTab('calc');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            [cadenceEl, powerEl].forEach((el) => {
+                const field = el.closest('.field') || el;
+                field.classList.remove('field-flash');
+                void field.offsetWidth;   // restart the animation
+                field.classList.add('field-flash');
+                setTimeout(() => field.classList.remove('field-flash'), 2600);
+            });
         });
     }
 }
@@ -1289,6 +2007,22 @@ bindSliderAndText('trailWkg', 'trailWkgSlider');
 bindSliderAndText('turboWkg', 'turboWkgSlider');
 
 // Preset mapping loaders
+/* The highlighted preset is DERIVED from the four W/kg values, never set as
+   a flag: if the user moves a slider by hand, no preset matches and none is
+   highlighted. A sticky "selected" flag would keep claiming a profile the
+   numbers no longer are. */
+function markActivePreset() {
+    const inputs = ['ecoWkg', 'autoWkg', 'trailWkg', 'turboWkg'].map((id) => document.getElementById(id));
+    if (inputs.some((el) => !el)) return;
+    const current = inputs.map((el) => parseFloat(el.value));
+    document.querySelectorAll('.preset').forEach((btn) => {
+        const wkg = String(btn.getAttribute('data-wkg') || '').split(',').map((v) => parseFloat(v));
+        const match = wkg.length === 4 && current.every((v, i) => Number.isFinite(v) && Math.abs(v - wkg[i]) < 0.005);
+        btn.classList.toggle('is-active', match);
+        btn.setAttribute('aria-pressed', match ? 'true' : 'false');
+    });
+}
+
 function loadPreset(eco, auto, trail, turbo) {
     document.getElementById('ecoWkg').value = eco;
     document.getElementById('ecoWkgSlider').value = eco;
@@ -1298,7 +2032,18 @@ function loadPreset(eco, auto, trail, turbo) {
     document.getElementById('trailWkgSlider').value = trail;
     document.getElementById('turboWkg').value = turbo;
     document.getElementById('turboWkgSlider').value = turbo;
+    /* A preset is a form change like any other: it persists. */
+    saveForm();
+    markActivePreset();
     updateSetup();
+}
+
+function initPresetState() {
+    ['ecoWkg', 'autoWkg', 'trailWkg', 'turboWkg'].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) { el.addEventListener('input', markActivePreset); el.addEventListener('change', markActivePreset); }
+    });
+    markActivePreset();
 }
 
 async function updateSetup() {
@@ -1440,10 +2185,11 @@ function geometryDistance(geom) {
     return d;
 }
 
-async function handleRouteFile(file) {
+async function handleRouteFile(file, opts) {
+    const restore = !!(opts && opts.restore);
     if (!file) return;
     if (file.size > 10 * 1024 * 1024) {
-        setFileStatus('File is larger than 10 MB.', 'error');
+        if (!restore) setFileStatus('File is larger than 10 MB.', 'error');
         return;
     }
     routeFileName = file.name;
@@ -1451,7 +2197,7 @@ async function handleRouteFile(file) {
        file now owns the analysis, so it must not sit on screen. */
     const summaryDlg = document.getElementById('rideSummaryDialog');
     if (summaryDlg && summaryDlg.open) summaryDlg.close();
-    setFileStatus('Reading ' + file.name + '…', 'info');
+    if (!restore) setFileStatus('Reading ' + file.name + '…', 'info');
 
     let text;
     try {
@@ -1485,9 +2231,18 @@ async function handleRouteFile(file) {
     const hadRides = loadedRides.length;
     if (hadRides) clearRides();
 
-    setFileStatus(parsedRoute.source.toUpperCase() + ' parsed — ' +
-        parsedRoute.geometries.length + ' geometry(ies) found.'
-        + (hadRides ? ' The loaded ride(s) were cleared.' : ''), 'ok');
+    /* Keep the bytes on this device, so a refresh does not lose the route. */
+    storeFile('route', file.name, await file.arrayBuffer(), file.type);
+
+    if (!restore) {
+        setFileStatus(parsedRoute.source.toUpperCase() + ' parsed — ' +
+            parsedRoute.geometries.length + ' geometry(ies) found.'
+            + (hadRides ? ' The loaded ride(s) were cleared.' : ''), 'ok');
+    }
+    /* Loaded: shorten the page (the header now carries the state). The
+       header summary itself is refreshed by applyRouteSelection(), once the
+       file name is the one being analysed. */
+    collapseAfterLoad('route', { quiet: restore });
 
     // Select everything by default. GPX track segments and KML
     // MultiGeometry parts are normally one ride split by pauses or by
@@ -1580,11 +2335,19 @@ function applyRouteSelection() {
     const route = AvinoxRoute.buildRoute(chosen);
     routeStats = AvinoxRoute.computeStats(route.points);
     routeGrades = AvinoxRoute.computeGradeStats(route.points);
+    routePoints = route.points;
     analysisSourceLabel = routeFileName;
+    /* A planned route has no measurement of its own: the calibration (if
+       any) is what scales it. */
+    selectedRideMetrics = null;
 
     renderFileSummary();
     renderElevationChart(chosen);
     renderRouteAnalysis();
+    renderRouteMap(routePoints);
+    /* Last: the summary reads the parameters, which renderFileSummary fills
+       from the file. */
+    updateRouteLoadState();
 
     /* The analysis follows the route: loading a file (or changing the
        segments) re-runs it, so the energy card can never describe a
@@ -1649,6 +2412,13 @@ function renderRouteAnalysis() {
                 ? `<p class="hint">${cs.count} climb(s) · median grade ${cs.medianGrade.toFixed(1)}% ·
                    longest ${cs.longestKm.toFixed(1)} km · peak ${routeGrades.maxGrade.toFixed(1)}%</p>`
                 : '<p class="hint">No sustained climbs detected.</p>';
+
+            const analysisState = document.getElementById('routeAnalysisState');
+            if (analysisState) {
+                analysisState.innerText = cs.count
+                    ? cs.count + (cs.count === 1 ? ' climb' : ' climbs') + ' · peak ' + routeGrades.maxGrade.toFixed(1) + '%'
+                    : 'no sustained climbs';
+            }
 }
 
 function renderRouteModes(res) {
@@ -1695,6 +2465,12 @@ function renderRouteModes(res) {
 
             notes.innerHTML = (res.notes || []).map((n) => '<p>· ' + escapeHtml(n) + '</p>').join('');
 
+            const modesState = document.getElementById('routeModesState');
+            if (modesState) {
+                modesState.innerText = res.modes.length + (res.modes.length === 1 ? ' mode · ' : ' modes · ')
+                    + res.modes.map((m) => m.label).join(', ');
+            }
+
     grid.querySelectorAll('button[data-copy-mode]').forEach((btn) => {
         btn.addEventListener('click', () => {
             const key = btn.getAttribute('data-copy-mode');
@@ -1729,7 +2505,10 @@ function renderFileSummary() {
             const qualityLabel = { good: 'Good', noisy: 'Noisy (smoothed)', unavailable: 'Unavailable' }[s.quality];
 
             const rows = [
-                ['Distance', s.distanceKm.toFixed(1) + ' km'],
+                ['Distance', s.distanceKm.toFixed(1) + ' km'
+                    + (Number.isFinite(s.gpsDistanceKm)
+                        ? ' <span class="kv-hint">bike odometer · GPS track ' + s.gpsDistanceKm.toFixed(1) + ' km</span>'
+                        : '')],
                 ['Elevation gain', eleOk ? Math.round(s.elevationGainM) + ' m' : '—'],
                 ['Elevation loss', eleOk ? Math.round(s.elevationLossM) + ' m' : '—'],
                 ['Min / max altitude', eleOk ? Math.round(s.minElevationM) + ' / ' + Math.round(s.maxElevationM) + ' m' : '—'],
@@ -1846,6 +2625,16 @@ function renderElevationChart(chosen) {
 
     note.innerText = 'Elevation smoothed over ' + routeStats.smoothingWindow +
         ' point(s), gain threshold ' + AvinoxRoute.constants.ELEVATION_THRESHOLD_M + ' m.';
+
+    const elevState = document.getElementById('elevationState');
+    if (elevState && routeStats.ok) {
+        elevState.innerText = '+' + Math.round(routeStats.elevationGainM) + ' m / −'
+            + Math.round(routeStats.elevationLossM) + ' m';
+    }
+
+    /* Hovering the profile drives the cursor (on the map and on the graphs)
+       for a recording as well as for a planned route. */
+    wireElevationCursor(elevationChartInstance);
 }
 
 /* One drop zone for both kinds of input: a planned route (.gpx/.kml) and
@@ -1922,24 +2711,28 @@ document.getElementById('missionForm').addEventListener('submit', async (e) => {
         elevationQuality: (routeStats && routeStats.ok) ? routeStats.quality : null
     };
 
-    /* Personal consumption from the calibration: the energy estimate is
-       scaled by how the model compares with the real rides it was measured
-       on. When the library is still loaded the totals are recomputed live;
-       otherwise the totals stored with the calibration are used, so a
-       planned route stays personalised (and consistent with the Tuner,
-       which applies the same factor). */
-    const cal2 = getCalibration();
-    if (cal2 && cal2.whPerKm > 0) {
-        const realKm = loadedRides.length
-            ? loadedRides.reduce((a, r) => a + (((r.samples.at(-1) || {}).distanceKm) || 0), 0)
-            : (cal2.realKm || 0);
-        const realHm = loadedRides.length
-            ? loadedRides.reduce((a, r) => a + (r.metadata.ascent || 0), 0)
-            : (cal2.realHm || 0);
-        if (realKm > 1) {
-            data.realWhPerKm = cal2.whPerKm;
-            data.realKm = Math.round(realKm * 10) / 10;
-            data.realHm = Math.round(realHm);
+    /* Which consumption the estimate is scaled by - and every estimate says
+       which, because they legitimately differ:
+       - a recording is scaled by ITS OWN measurement (the file's numbers);
+       - a planned route has none, so the calibration (what all the rides
+         loaded so far averaged) scales it. */
+    lastFactorSource = null;
+    if (selectedRideMetrics && selectedRideMetrics.whPerKm > 0 && selectedRideMetrics.km > 1) {
+        data.realWhPerKm = selectedRideMetrics.whPerKm;
+        data.realKm = Math.round(selectedRideMetrics.km * 10) / 10;
+        data.realHm = Math.round(selectedRideMetrics.hm);
+        lastFactorSource = 'ride';
+    } else {
+        const cal2 = getCalibration();
+        if (cal2 && cal2.whPerKm > 0) {
+            const realKm = cal2.realKm || 0;
+            const realHm = cal2.realHm || 0;
+            if (realKm > 1) {
+                data.realWhPerKm = cal2.whPerKm;
+                data.realKm = Math.round(realKm * 10) / 10;
+                data.realHm = Math.round(realHm);
+                lastFactorSource = 'calibration';
+            }
         }
     }
 
@@ -1950,6 +2743,24 @@ document.getElementById('missionForm').addEventListener('submit', async (e) => {
         /* Results exist now: show them and hide the empty state. */
         document.getElementById('missionResults').classList.remove('hidden');
         document.getElementById('missionEmpty').classList.add('hidden');
+
+        /* When a recording is analysed, show its own measured consumption next
+           to the calibration average: the two numbers differ on purpose. */
+        const selRow = document.getElementById('calibrationSelectedRow');
+        const selVal = document.getElementById('calibrationSelectedRide');
+        if (selRow && selVal) {
+            if (selectedRideMetrics) {
+                selRow.classList.remove('hidden');
+                selVal.innerText = selectedRideMetrics.whPerKm + ' Wh/km · ' + selectedRideMetrics.km + ' km';
+            } else {
+                selRow.classList.add('hidden');
+                selVal.innerText = '—';
+            }
+        }
+
+        /* The map needs a visible container to size itself: on the first
+           analysis it is built here, after the results are shown. */
+        if (routePoints.length) renderRouteMap(routePoints);
 
         /* Say which input these numbers describe: a loaded file, a
            recording, or the values typed by hand. */
@@ -1969,48 +2780,7 @@ document.getElementById('missionForm').addEventListener('submit', async (e) => {
             badge.className = 'badge badge-warn';
         }
 
-                const en = res.energy;
-                /* Say where the personal factor comes from: with the rides
-                   loaded it is "your rides", without them it is the stored
-                   calibration - and the user is told how to drop it. */
-                let scalingNote = '';
-                if (res.basedOnRealRides) {
-                    const calInfo = getCalibration();
-                    const on = calInfo && calInfo.rideLabel ? ' — measured on ' + calInfo.rideLabel : '';
-                    scalingNote = callout('info', loadedRides.length
-                        ? 'Energy estimate scaled by your rides (×' + res.personalFactor.toFixed(2) + on + ').'
-                        : 'Energy estimate scaled by the calibration stored on this device (×' + res.personalFactor.toFixed(2) + on + '); the ride recordings are not loaded. Remove the calibration below to go back to the generic model.');
-                }
-                document.getElementById('energyBreakdown').innerHTML =
-                    scalingNote +
-                    kvRow('Estimated use:', `${en.estimated} Wh`, ` <span class="kv-hint">(${en.low}–${en.high} Wh)</span>`) +
-            kvRow('Baseline flat + climb:', `${en.base} Wh`, ` <span class="kv-hint">(${en.flat} + ${en.climb})</span>`) +
-            kvRow('Corrections:', `surface ×${res.surface.factor.toFixed(2)}, steepness ×${res.steepnessFactor.toFixed(2)}`) +
-            kvRow('Usable battery:', `${res.usableWh} Wh`, ` <span class="kv-hint">(${selectedBattery} − ${res.reserve.percent}% reserve)</span>`) +
-            kvRow('Safety throttling:', `${(res.scalingFactor * 100).toFixed(0)}%`) +
-            kvRow('Confidence:', `${res.confidence}`);
-
-        const ctxPie = document.getElementById('missionPieChart').getContext('2d');
-        if (missionPieChartInstance) missionPieChartInstance.destroy();
-        const theme = chartTheme();
-
-        missionPieChartInstance = new Chart(ctxPie, {
-            type: 'pie',
-            data: {
-                labels: ['ECO', 'AUTO', 'TRAIL', 'TURBO'],
-                datasets: [{
-                    data: [res.distribution.eco, res.distribution.auto, res.distribution.trail, res.distribution.turbo],
-                    backgroundColor: theme.modeColors,
-                    borderWidth: 1,
-                    borderColor: theme.surface
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: { legend: { display: false } }
-            }
-        });
+        renderEnergyCard(res, selectedBattery);
 
         // Phase 3: propose custom modes tailored to this route.
         try {
@@ -2034,6 +2804,13 @@ window.addEventListener('DOMContentLoaded', () => {
     initRideSummaryDialog();
     initAppReset();
     initInstallButton();
+    initRouteSections();
+    initTunerCalibrationCta();
+    initDataTransfer();
+    initPresetState();
+    /* Bring back what was loaded last time (IndexedDB), quietly: same load
+       path, no notice, no "rides analyzed" dialog. */
+    restoreStoredFiles().then(() => updateRouteLoadState());
     if ('serviceWorker' in navigator) {
         navigator.serviceWorker.register('/sw.js').catch(() => { /* offline support unavailable */ });
     }
@@ -2044,12 +2821,31 @@ window.addEventListener('DOMContentLoaded', () => {
    profile) from that ride's GPS, then run the analysis. Merging several
    rides into one track would concatenate unrelated recordings (huge fake
    gaps) and break the grade analysis, so it is one at a time. */
+function measureRide(ride) {
+    /* This ride's own numbers, measured the same way the calibration is:
+       reusing analyzeRideForCalibration on a single ride keeps one definition
+       of "real consumption" in the app. */
+    try {
+        const own = analyzeRideForCalibration({ metadata: ride.metadata, samples: ride.samples });
+        const km = parseFloat(own.summary.distanceKm);
+        if (!(own.summary.whPerKm > 0) || !(km > 1)) return null;
+        return { whPerKm: own.summary.whPerKm, km: km, hm: ride.metadata.ascent || 0 };
+    } catch (e) {
+        return null;
+    }
+}
+
 function analyzeSelectedRide(index) {
     if (!loadedRides.length) return;
     const i = (typeof index === 'number' && loadedRides[index]) ? index : Math.min(selectedRideIndex, loadedRides.length - 1);
     const ride = loadedRides[i];
     if (!ride) return;
     selectedRideIndex = i;
+
+    /* A recording brings its own map (with the channel selector): the planned-
+       route map would only duplicate it. */
+    routePoints = [];
+    destroyRouteMap();
 
     /* GPS track of the ride, in the format route-file.js uses. */
     const points = [];
@@ -2067,10 +2863,24 @@ function analyzeSelectedRide(index) {
         routeStats = AvinoxRoute.computeStats(points);
         routeGrades = AvinoxRoute.computeGradeStats(points);
         analysisSourceLabel = ride.label || 'recorded ride';
-        /* Fill distance/elevation and render the profile + grade analysis
-           exactly as a file import would. */
+        /* Distance: the bike's odometer is what was actually ridden (and it is
+           the denominator of the measured Wh/km, and what the DJI app shows);
+           the GPS sum under-reads it by a few percent. GPS stays in charge of
+           grades, elevation and the profile. */
+        const odoKm = (ride.samples.at(-1) || {}).distanceKm || 0;
+        if (odoKm > 0.1 && routeStats.ok) {
+            routeStats.gpsDistanceKm = routeStats.distanceKm;
+            routeStats.distanceKm = odoKm;
+        }
+        /* This ride's own measured consumption: the analysis of a recording
+           uses the recording's own numbers, not the average over the library
+           (that average is what the Tuner projects from). */
+        selectedRideMetrics = measureRide(ride);
         renderFileSummary();
-        renderElevationChart([{ name: ride.label || 'ride', points: points }]);
+        /* No elevation profile for a recording: the graph stack already has
+           "Elevation & Gradient" with the same data, and showing the same
+           chart twice only makes the page longer. */
+        hideElevationProfile();
         renderRouteAnalysis();
     } else {
         const realKm = (ride.samples.at(-1) || {}).distanceKm || 0;
@@ -2078,6 +2888,7 @@ function analyzeSelectedRide(index) {
         if (realKm > 0.1) document.getElementById('targetKm').value = (Math.round(realKm * 10) / 10).toFixed(1);
         if (realHm > 0) document.getElementById('targetH_m').value = Math.round(realHm);
         analysisSourceLabel = ride.label || 'recorded ride';
+        selectedRideMetrics = measureRide(ride);
     }
 
     document.getElementById('missionForm').dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
@@ -2192,6 +3003,7 @@ function applyFormDefaults() {
         const el = document.getElementById(id);
         if (el) el.value = value;
     });
+    markActivePreset();   // the defaults are the Balanced profile
 }
 
 function initResetDefaults() {
@@ -2207,6 +3019,15 @@ function initResetDefaults() {
 /* Drop the loaded ride library: charts, map, selector and the ride-derived
    analysis. The calibration is NOT touched - it is a measurement stored on
    the device, not part of the loaded files (see resetApp for a full wipe). */
+/* Remove stored records of the given kinds (ids are read back, so no key
+   has to be reconstructed). */
+function purgeStored(kinds) {
+    idbReadAll().then((all) => {
+        const ids = all.filter((r) => kinds.indexOf(r.kind) >= 0).map((r) => r.id);
+        if (ids.length) idbRemove(ids);
+    });
+}
+
 function clearRides() {
     loadedRides = [];
     selectedRideIndex = 0;
@@ -2229,6 +3050,9 @@ function clearRides() {
     if (calReport) calReport.innerHTML = '';
     const rideMapBox = document.getElementById('rideMap');
     if (rideMapBox) rideMapBox.innerHTML = '';
+    /* The stored copies go with them: the library is what the calibration was
+       measured from, and the two must not disagree after a refresh. */
+    purgeStored(['ride', 'state']);
     renderCalibrationState();
     renderRideInsights();
 }
@@ -2239,6 +3063,10 @@ function clearRouteFile() {
     parsedRoute = null;
     selectedGeometries = [];
     routeFileName = null;
+    routePoints = [];
+    selectedRideMetrics = null;
+    destroyRouteMap();
+    purgeStored(['route']);
     const summary = document.getElementById('fileSummary');
     if (summary) summary.innerHTML = '';
     ['geometryPanel', 'geometryPicker', 'fileSummary']
@@ -2247,14 +3075,15 @@ function clearRouteFile() {
 
 /* Clear all: drop the loaded rides, the calibration and reset the form. */
 /* Total reset: rides, calibration, route analysis, forms and saved
-   settings. Reachable from the Route tab and from the ? dialog. */
+   settings. Reachable from the header ("Clear all data"). */
 function resetApp() {
-    if (!window.confirm('Reset the app to defaults? This removes the loaded rides, the calibration, the route analysis and any saved settings.')) return;
+    if (!window.confirm('Clear all data? This removes the loaded routes and rides, the calibration, the route analysis and any saved settings.')) return;
 
     try {
         ['avinox-form', 'avinox-calibration', 'avinox-graph-order', 'avinox-pinned-graphs']
             .forEach((k) => localStorage.removeItem(k));
     } catch (e) { /* ignore */ }
+    idbClearAll();
 
     /* Rides (the calibration is in localStorage and is removed above). */
     clearRides();
@@ -2275,8 +3104,7 @@ function resetApp() {
         .forEach((id) => { const el = document.getElementById(id); if (el) el.classList.add('hidden'); });
     const verdict = document.getElementById('energyVerdict');
     if (verdict) { verdict.innerText = '--'; verdict.className = 'badge badge-soft'; }
-    const breakdown = document.getElementById('energyBreakdown');
-    if (breakdown) breakdown.innerHTML = 'Enter route parameters and execute the analysis to compute the electrical projection.';
+    resetEnergyCard();
     ['gradeBars', 'climbList', 'routeModesGrid', 'routeModeNotes'].forEach((id) => {
         const el = document.getElementById(id);
         if (el) el.innerHTML = '';
@@ -2300,6 +3128,7 @@ function resetApp() {
 
     renderCalibrationState();
     renderRideInsights();
+    resetRouteSections();
 }
 
 /* Full reset: one global action, in the header (the Route tab and the
@@ -2358,6 +3187,8 @@ function initKbDialog() {
         try { localStorage.setItem('avinox-theme', next); } catch (e) { /* ignore */ }
         apply(next);
         if (typeof updateSetup === 'function') updateSetup();
+        /* The map colours come from the theme tokens: redraw after a switch. */
+        if (routeMap && routePoints.length) renderRouteMap(routePoints);
     });
 })();
 
@@ -2377,6 +3208,303 @@ function initKbDialog() {
     document.getElementById('batteryWh').addEventListener('change', update);
     update();
 })();
+
+/* ---- Collapsible Route sections --------------------------------------- */
+/* The three step cards keep a state summary in their always-visible header:
+   collapsing is only useful if the header still says what is inside. The
+   actions (loader, ride picker, Analyze) live in the header too, outside the
+   toggle, so they never disappear with the body. */
+
+let routeSectionsAuto = true;   // per session; "Show all" turns it off
+
+const ROUTE_SECTIONS = {
+    load: { card: 'routeLoadCard', toggle: 'routeLoadToggle', body: 'routeLoadBody' },
+    rideData: { card: 'rideInsights', toggle: 'rideDataToggle', body: 'rideDataBody' },
+    calibration: { card: 'ridesCalibration', toggle: 'calibrationToggle', body: 'calibrationBody' },
+    /* The analysis blocks follow the same rule: the verdict and the energy
+       card stay visible, the details are one click away and their header
+       carries the figure that matters. */
+    routeAnalysis: { card: 'routeAnalysis', toggle: 'routeAnalysisToggle', body: 'routeAnalysisBody' },
+    routeMap: { card: 'routeMapPanel', toggle: 'routeMapToggle', body: 'routeMapBody' },
+    routeModes: { card: 'routeModes', toggle: 'routeModesToggle', body: 'routeModesBody' },
+    elevation: { card: 'elevationPanel', toggle: 'elevationToggle', body: 'elevationBody' }
+};
+
+/* Mirrors the order they appear in on the page: analysis, the modes it
+   proposes, then the map and the profile. */
+const ANALYSIS_SECTIONS = ['routeAnalysis', 'routeModes', 'routeMap', 'elevation'];
+
+function routeSectionOpen(key) {
+    const def = ROUTE_SECTIONS[key];
+    const body = def && document.getElementById(def.body);
+    return !!body && !body.classList.contains('hidden');
+}
+
+function graphsOpen() {
+    const wrap = document.getElementById('rideGraphsWrap');
+    return !!wrap && !wrap.classList.contains('hidden');
+}
+
+/* A container that was display:none has no measured size: charts and maps
+   must be told to re-measure or they come back blank (or 0x0). Only the ones
+   whose own body is open. */
+function refreshSizedWidgets() {
+    if (rideMap && routeSectionOpen('rideData')) { try { rideMap.resize(); } catch (e) { /* ignore */ } }
+    if (routeMap && routeSectionOpen('routeMap')) { try { routeMap.resize(); } catch (e) { /* ignore */ } }
+    if (elevationChartInstance && routeSectionOpen('elevation')) {
+        try { elevationChartInstance.resize(); } catch (e) { /* ignore */ }
+    }
+    if (routeSectionOpen('rideData') && graphsOpen()) {
+        rideCharts.forEach((c) => { try { c.resize(); } catch (e) { /* ignore */ } });
+    }
+}
+
+function setRouteSection(key, open) {
+    const def = ROUTE_SECTIONS[key];
+    if (!def) return;
+    const body = document.getElementById(def.body);
+    const toggle = document.getElementById(def.toggle);
+    if (!body || !toggle) return;
+    body.classList.toggle('hidden', !open);
+    toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    const head = toggle.closest('.step-head');
+    if (head) head.classList.toggle('is-collapsed', !open);
+    if (open) requestAnimationFrame(refreshSizedWidgets);
+}
+
+function setGraphsOpen(open) {
+    const wrap = document.getElementById('rideGraphsWrap');
+    const btn = document.getElementById('graphsToggle');
+    if (!wrap || !btn) return;
+    wrap.classList.toggle('hidden', !open);
+    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    const chev = btn.querySelector('.graph-toggle-chevron');
+    if (chev) chev.style.transform = open ? 'rotate(90deg)' : '';
+    if (open) requestAnimationFrame(refreshSizedWidgets);
+}
+
+function showRouteNotice(text) {
+    const el = document.getElementById('routeNotice');
+    const txt = document.getElementById('routeNoticeText');
+    if (!el || !txt) return;
+    txt.innerText = text;
+    el.classList.remove('hidden');
+    if (routeNoticeTimer) clearTimeout(routeNoticeTimer);
+    routeNoticeTimer = setTimeout(hideRouteNotice, 9000);
+}
+
+let routeNoticeTimer = null;
+
+function hideRouteNotice() {
+    const el = document.getElementById('routeNotice');
+    if (el) el.classList.add('hidden');
+    if (routeNoticeTimer) { clearTimeout(routeNoticeTimer); routeNoticeTimer = null; }
+}
+
+/* After something is loaded, shorten the page - and say so, with a way back
+   to the full view (which also stops the automatic collapsing for the rest
+   of the session: the user asked for it once). `quiet` is for a restore on
+   page load: same layout, no announcement. */
+function collapseAfterLoad(kind, opts) {
+    if (!routeSectionsAuto) return;
+    const quiet = !!(opts && opts.quiet);
+    setRouteSection('load', false);
+    setRouteSection('calibration', false);
+    if (kind === 'ride') setGraphsOpen(false);
+    /* A new input means new figures: the details of the previous one must not
+       stay expanded under the new result. */
+    ANALYSIS_SECTIONS.forEach((key) => setRouteSection(key, false));
+    if (quiet) return;
+    showRouteNotice(kind === 'ride'
+        ? 'Rides loaded: the loader and the calibration are collapsed, and the graphs are one click away.'
+        : 'Route loaded: the loader is collapsed to keep the page short. Open it again to change the file.');
+}
+
+/* Header summary of card 1: what is loaded and with which parameters. The
+   parameters matter because they can be edited by hand - if they are not
+   visible while the card is collapsed, Analyze would run blind. */
+function updateRouteLoadState() {
+    const el = document.getElementById('routeLoadState');
+    if (!el) return;
+    const km = (document.getElementById('targetKm') || {}).value || '';
+    const hm = (document.getElementById('targetH_m') || {}).value;
+    const surface = document.getElementById('surface');
+    const surfaceTxt = surface && surface.selectedIndex >= 0 ? surface.options[surface.selectedIndex].text : '';
+    const ride = loadedRides[selectedRideIndex];
+
+    let what = analysisSourceLabel || (ride ? ride.label : null) || 'Nothing loaded yet';
+    const params = [
+        km ? km + ' km' : '',
+        (hm === '' || hm == null) ? '' : '+' + hm + ' m',
+        surfaceTxt,
+        (document.getElementById('reservePercent') || {}).value ? 'reserve ' + document.getElementById('reservePercent').value + '%' : ''
+    ].filter(Boolean).join(' · ');
+    el.innerText = params ? what + ' — ' + params : what;
+
+    const changeBtn = document.getElementById('changeFileBtn');
+    if (changeBtn) changeBtn.classList.toggle('hidden', !(analysisSourceLabel || loadedRides.length));
+}
+
+function initRouteSections() {
+    Object.keys(ROUTE_SECTIONS).forEach((key) => {
+        const toggle = document.getElementById(ROUTE_SECTIONS[key].toggle);
+        if (toggle) toggle.addEventListener('click', () => setRouteSection(key, !routeSectionOpen(key)));
+    });
+
+    const graphsToggle = document.getElementById('graphsToggle');
+    if (graphsToggle) graphsToggle.addEventListener('click', () => setGraphsOpen(!graphsOpen()));
+
+    const showAll = document.getElementById('routeNoticeShowAll');
+    if (showAll) {
+        showAll.addEventListener('click', () => {
+            routeSectionsAuto = false;
+            Object.keys(ROUTE_SECTIONS).forEach((key) => setRouteSection(key, true));
+            setGraphsOpen(true);
+            hideRouteNotice();
+        });
+    }
+    const noticeClose = document.getElementById('routeNoticeClose');
+    if (noticeClose) noticeClose.addEventListener('click', hideRouteNotice);
+
+    const changeBtn = document.getElementById('changeFileBtn');
+    if (changeBtn) {
+        changeBtn.addEventListener('click', () => {
+            const input = document.getElementById('routeFileInput');
+            if (input) input.click();
+        });
+    }
+
+    /* The parameters are part of the collapsed header: keep it in step. */
+    ['targetKm', 'targetH_m', 'surface', 'reservePercent'].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) { el.addEventListener('input', updateRouteLoadState); el.addEventListener('change', updateRouteLoadState); }
+    });
+    updateRouteLoadState();
+}
+
+/* "Not calibrated" is the moment to suggest the way out of generic numbers:
+   the Tuner sends the user to the Route loader and highlights it. */
+function initTunerCalibrationCta() {
+    const btn = document.getElementById('goToLoaderBtn');
+    if (!btn) return;
+    btn.addEventListener('click', () => {
+        switchTab('route');
+        /* Deliberate navigation: do not re-collapse the loader under them. */
+        routeSectionsAuto = false;
+        setRouteSection('load', true);
+        const dz = document.getElementById('routeDropZone');
+        if (dz) {
+            dz.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            dz.classList.add('is-prompted');
+            setTimeout(() => dz.classList.remove('is-prompted'), 3500);
+        }
+        setFileStatus('Drop your .proto ride recordings here to calibrate.', 'info');
+    });
+}
+
+function resetRouteSections() {
+    routeSectionsAuto = true;
+    hideRouteNotice();
+    setRouteSection('load', true);
+    setGraphsOpen(false);
+    ANALYSIS_SECTIONS.forEach((key) => setRouteSection(key, false));
+}
+
+/* The energy card: four blocks with a big number each, the factor and the
+   reserve as badges, the physics as rows and the mode split as a stacked bar
+   with one chip per mode (the pie said the same thing with less clarity). */
+const MODE_KEYS = ['eco', 'auto', 'trail', 'turbo'];
+
+function renderEnergyCard(res, selectedBattery) {
+    const en = res.energy;
+    const set = (id, txt) => { const el = document.getElementById(id); if (el) el.innerText = txt; };
+
+    set('energyEstimated', en.estimated);
+    set('energyRange', en.low + '–' + en.high + ' Wh');
+    set('energyBaseline', 'Baseline: ' + en.base + ' Wh (' + en.flat + ' flat + ' + en.climb + ' climb)');
+    set('energyUsable', res.usableWh);
+    set('energyPack', 'of ' + selectedBattery + ' Wh pack');
+    set('energyCushion', 'Safety cushion: ' + Math.max(0, res.usableWh - en.estimated) + ' Wh remaining at the finish');
+    set('energyDistributionTotal', en.estimated + ' Wh');
+
+    const reserveBadge = document.getElementById('energyReserveBadge');
+    if (reserveBadge) {
+        reserveBadge.classList.remove('hidden');
+        reserveBadge.innerText = res.reserve.percent + '% Reserve';
+    }
+
+    /* Where the personal factor comes from, in the badge instead of a banner. */
+    const calBadge = document.getElementById('energyCalBadge');
+    if (calBadge) {
+        if (res.basedOnRealRides) {
+            const fromRide = lastFactorSource === 'ride' && !!selectedRideMetrics;
+            calBadge.classList.remove('hidden');
+            calBadge.innerText = '×' + res.personalFactor.toFixed(2) + (fromRide ? ' this ride' : ' calibration');
+            calBadge.title = fromRide
+                ? 'Scaled by the consumption measured on this recording: ' + selectedRideMetrics.whPerKm
+                    + ' Wh/km over ' + selectedRideMetrics.km + ' km'
+                : 'Scaled by the calibration stored on this device';
+        } else {
+            calBadge.classList.add('hidden');
+            calBadge.innerText = '';
+            calBadge.title = '';
+        }
+    }
+
+    const confBadge = document.getElementById('energyConfidenceBadge');
+    if (confBadge) {
+        const level = String(res.confidence || '').toLowerCase();
+        confBadge.classList.remove('hidden');
+        confBadge.innerText = (res.confidence || '—') + ' conf.';
+        confBadge.className = 'badge ' + (level === 'high' ? 'badge-ok' : (level === 'low' ? 'badge-warn' : 'badge-soft'));
+    }
+
+    const physics = document.getElementById('energyBreakdown');
+    if (physics) {
+        const throttle = Math.round(res.scalingFactor * 100);
+        physics.innerHTML =
+            kvRow('Surface resistance:', '×' + res.surface.factor.toFixed(2)) +
+            kvRow('Steepness factor:', '×' + res.steepnessFactor.toFixed(2)) +
+            kvRow('Safety throttling:', '<span class="' + (throttle >= 100 ? 'energy-ok' : 'energy-warn') + '">'
+                + throttle + '%</span> <span class="kv-hint">' + (throttle >= 100 ? '(no derate)' : '(derated)') + '</span>');
+    }
+
+    const dist = res.distribution || {};
+    const bar = document.getElementById('modeBar');
+    if (bar) {
+        bar.innerHTML = MODE_KEYS.map((k) => {
+            const pct = Math.max(0, Number(dist[k]) || 0);
+            return '<span style="width:' + pct.toFixed(2) + '%;background:var(--mode-' + k + ')"></span>';
+        }).join('');
+    }
+    const chips = document.getElementById('modeChips');
+    if (chips) {
+        chips.innerHTML = MODE_KEYS.map((k) => {
+            const pct = Math.round(Number(dist[k]) || 0);
+            return '<div class="mode-chip" data-mode="' + k + '"><strong>' + pct + '%</strong>' + k + '</div>';
+        }).join('');
+    }
+}
+
+/* Back to the empty card (a reset leaves #missionResults hidden anyway). */
+function resetEnergyCard() {
+    ['energyEstimated', 'energyUsable'].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.innerText = '—';
+    });
+    ['energyRange', 'energyBaseline', 'energyPack', 'energyCushion', 'energyDistributionTotal'].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.innerText = '';
+    });
+    ['energyCalBadge', 'energyReserveBadge', 'energyConfidenceBadge'].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) { el.classList.add('hidden'); el.innerText = ''; }
+    });
+    ['energyBreakdown', 'modeBar', 'modeChips'].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.innerHTML = '';
+    });
+}
 
 function switchTab(tabName) {
     const workspaces = {
