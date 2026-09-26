@@ -99,18 +99,23 @@
 
     /* ---------------------------------------------------------------- *
      * Assist values
-     * A recording stores a number per sample for the assist in use. It is
-     * not the mode's name: on a real ride 1 was ECO, 4 was AUTO and 20/21
-     * were two custom modes. So each value is described by what the motor
-     * did — the motor/rider ratio while pedalling, per gradient — and named
-     * only where that is confirmed.
+     * A recording stores a number per sample for the assist in use. The
+     * numbers follow the factory list order of the modes (ECO, TRAIL, TURBO,
+     * AUTO), not the button cycle (Off > Auto > Eco > Trail > Turbo) nor a
+     * reordered list. DJI documents no IDs: this comes from real rides, where
+     * 1 held a low fixed ratio, 2 a middle one, 3 the highest and 4 moved
+     * with the gradient as AUTO does; 20/21 were two custom modes. Each value
+     * is also described by what the motor did, so a wrong name shows.
      * ---------------------------------------------------------------- */
 
-    var KNOWN_ASSIST_NAMES = { 1: 'ECO', 4: 'AUTO' };
+    var KNOWN_ASSIST_NAMES = { 1: 'ECO', 2: 'TRAIL', 3: 'TURBO', 4: 'AUTO' };
     var FIRST_CUSTOM_ASSIST = 20;
     var PEDALLING_W = 60;
     var GRADE_LOOKAHEAD_M = 50;
     var GRADE_BANDS = [[-Infinity, 3], [3, 7], [7, 12], [12, 18], [18, Infinity]];
+    // Above the 25 km/h cut-off the motor stops assisting: those samples say
+    // nothing about the level.
+    var ASSIST_CUTOFF_KMH = 24;
     var MIN_SAMPLES = 30;
     var MIN_BAND_SAMPLES = 15;
     // A ratio that moves more than this across gradients is a dynamic mode.
@@ -167,6 +172,7 @@
             var v = byValue[s.assist] || (byValue[s.assist] = { ratios: [], bands: GRADE_BANDS.map(function () { return []; }), maxMotorW: 0 });
             v.maxMotorW = Math.max(v.maxMotorW, s.motorPower || 0);
             if (!((s.riderPower || 0) > PEDALLING_W)) return;
+            if ((s.speed || 0) > ASSIST_CUTOFF_KMH) return;
             var ratio = (s.motorPower || 0) / s.riderPower;
             v.ratios.push(ratio);
             if (grades[i] == null) return;

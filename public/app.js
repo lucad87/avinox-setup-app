@@ -2190,7 +2190,7 @@ function renderCalibrationReport(analysis) {
         '<p class="hint">The recording stores a number for the assist, not the mode\'s name. Each value is described ' +
         'by what the motor did while you pedalled: a <strong>fixed</strong> ratio of motor to rider power, or a ' +
         '<strong>dynamic</strong> one that grows with the gradient. Names are given only where they are confirmed ' +
-        '(1 = ECO, 4 = AUTO, 20 and up = custom modes). ' +
+        '(1 = ECO, 2 = TRAIL, 3 = TURBO, 4 = AUTO, 20 and up = custom modes). ' +
         'Route estimates use the whole-ride consumption, which counts every watt-hour in the file.</p>' +
         '<button type="button" id="useRideAverages" class="btn btn-primary btn-block"' +
         ((s.avgCadence && s.avgRiderPower) ? '' : ' disabled') + '>Use ride averages' +

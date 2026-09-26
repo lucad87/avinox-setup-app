@@ -111,9 +111,11 @@ test('a mode whose ratio grows with the gradient is dynamic', () => {
     assert.equal(d.label, 'AUTO · dynamic 2.2×–3.7×');
 });
 
-test('values from 20 up are custom modes, the others keep their number', () => {
+test('1-4 are named, 20 and up are custom modes, the others keep their number', () => {
     assert.equal(describeAssistValues(assistRide(21, () => 2.2))[0].label, 'custom 21 · fixed 2.2×');
-    assert.equal(describeAssistValues(assistRide(3, () => 3))[0].label, 'assist 3 · fixed 3.0×');
+    assert.equal(describeAssistValues(assistRide(3, () => 6))[0].label, 'TURBO · fixed 6.0×');
+    assert.equal(describeAssistValues(assistRide(2, () => 2.7))[0].label, 'TRAIL · fixed 2.7×');
+    assert.equal(describeAssistValues(assistRide(7, () => 1))[0].label, 'assist 7 · fixed 1.0×');
 });
 
 test('a value with no motor output, or too few samples, says so', () => {
@@ -125,4 +127,9 @@ test('the rider energy is integrated with the motor energy', () => {
     const e = energyOf(assistRide(1, () => 1.2));
     assert.ok(Math.abs(e.riderWh - 150 * 1200 / 3600) < 0.5);
     assert.ok(Math.abs(e.motorWh / e.riderWh - 1.2) < 1e-9);
+});
+
+test('samples above the assist cut-off speed do not read as a weaker mode', () => {
+    const samples = assistRide(3, () => 6).map((s, i) => (i < 300 ? { ...s, speed: 30, motorPower: 0 } : { ...s, speed: 12 }));
+    assert.equal(describeAssistValues(samples)[0].label, 'TURBO · fixed 6.0×');
 });
