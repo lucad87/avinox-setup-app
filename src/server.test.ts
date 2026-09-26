@@ -115,3 +115,43 @@ test('the Tuner ranges stay plausible at the default setup', async () => {
     }
     assert.equal(r.body.stock.length, 4);
 });
+
+test('Max Torque is sized for a 60 RPM climb', async () => {
+    const r = await post('/api/calculate', RIDER);
+    assert.deepEqual(
+        ['eco', 'auto', 'trail', 'turbo'].map((k) => [r.body[k].maxPower, r.body[k].maxTorque]),
+        [[150, 25], [300, 50], [550, 90], [800, 125]]
+    );
+    for (const k of ['eco', 'auto', 'trail', 'turbo']) assert.deepEqual(r.body[k].warnings, []);
+});
+
+test('below the climbing cadence the torque follows the rider cadence', async () => {
+    const r = await post('/api/calculate', { ...RIDER, cadence: 50 });
+    assert.equal(r.body.eco.maxTorque, 30);   // 150 W x 9.55 / 50 RPM = 28.7 Nm
+});
+
+test('a power the motor cannot reach at the rider cadence is still flagged', async () => {
+    const r = await post('/api/calculate', { ...RIDER, turboWkg: 11 });   // 1122 W -> 1100 W
+    assert.equal(r.body.turbo.maxTorque, 130);
+    assert.equal(r.body.turbo.achievable, false);
+    assert.equal(r.body.turbo.warnings.length, 1);
+});
+
+test('the full M2S Boost follows the pack, not the capacity', async () => {
+    const boost = async (extra: object) => (await post('/api/calculate', { ...RIDER, ...extra })).body;
+    assert.equal((await boost({ battery: 'FP700' })).boost.fullPowerAvailable, true);
+    assert.equal((await boost({ battery: 'RS800' })).boost.fullPowerAvailable, true);
+    assert.equal((await boost({ battery: 'FS800' })).boost.fullPowerAvailable, false);
+    assert.equal((await boost({ battery: 'RS600' })).boost.fullPowerAvailable, false);
+    const rs600 = await boost({ battery: 'RS600', batteryWh: 800 });
+    assert.equal(rs600.batteryWh, 600);
+    assert.equal(rs600.battery, 'RS600');
+});
+
+test('an older client that sends only the capacity keeps working', async () => {
+    const legacy700 = (await post('/api/calculate', { ...RIDER, batteryWh: 700 })).body;
+    const legacy800 = (await post('/api/calculate', { ...RIDER, batteryWh: 800 })).body;
+    assert.equal(legacy700.boost.fullPowerAvailable, true);
+    assert.equal(legacy800.boost.fullPowerAvailable, false);
+    assert.equal(legacy800.battery, null);
+});

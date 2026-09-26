@@ -5,9 +5,16 @@
    reverse-engineering effort (documented by the Avinox Ride Explorer
    project via comparison with Strava FIT exports) — factual data, not
    official DJI documentation. This is an independent implementation.
-   Nothing is uploaded: parsing happens entirely in the browser.
+   Nothing is uploaded: parsing happens entirely in the browser (and under
+   Node for the tests, like route-file.js).
    ========================================================================== */
-(function (global) {
+(function (root, factory) {
+    if (typeof module === 'object' && module.exports) {
+        module.exports = factory();
+    } else {
+        root.AvinoxProtoParser = factory();
+    }
+})(typeof self !== 'undefined' ? self : this, function () {
     "use strict";
 
     var HEADER_SIZE = 251, MAGIC = 0xa5a5a5a5, FRAME_TYPE = 0x02eb;
@@ -64,6 +71,12 @@
         return out;
     }
 
+    /* A field the sample does not carry is null, not 0: a missing altitude
+       read as 0 m would drop the track to sea level and invent a climb. */
+    function scaledSigned(v, divisor) {
+        return v == null ? null : signed(v) / divisor;
+    }
+
     /* Map a decoded sample message to named channels (scaled). */
     function sample(f) {
         var ts = num(f[72]), temp = signed(f[41]);
@@ -86,9 +99,9 @@
             distanceKm: (num(f[23]) || 0) / 1000,
             latitude: f64(f[31]),
             longitude: f64(f[32]),
-            altitude: num(f[39]) / 100 || 0,
-            gradient: f[40] == null ? null : signed(f[40]) / 100,
-            temperature: temp === -99900 ? null : temp / 100,
+            altitude: scaledSigned(f[39], 100),
+            gradient: scaledSigned(f[40], 100),
+            temperature: temp == null || temp === -99900 ? null : temp / 100,
             pressure: num(f[42]) / 100 || null,
             heartRate: num(f[51]),
             riderEnergyKj: (num(f[52]) || 0) / 1000,
@@ -132,5 +145,5 @@
         return { metadata: meta, samples: samples };
     }
 
-    global.AvinoxProtoParser = { parse: parse };
-})(window);
+    return { parse: parse };
+});
