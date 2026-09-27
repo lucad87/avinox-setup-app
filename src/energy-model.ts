@@ -17,6 +17,139 @@ export const SURFACE_FACTORS: Record<string, number> = {
 };
 export const DEFAULT_SURFACE = 'mixed';
 
+/* ------------------------------------------------------------------
+ * SURFACE COMPOSITION
+ * ------------------------------------------------------------------
+ * A surface is a mix of six voices, each with its own energy and torque
+ * factor. The legacy single-surface ids (above) resolve to a composition,
+ * so stored calibrations and older clients keep working; the factors the
+ * model actually applies come from the mix, as weighted means.
+ * ------------------------------------------------------------------ */
+
+export type SurfaceVoiceId = 'tarmac' | 'compacted' | 'hardpack' | 'mixed' | 'rock' | 'mud';
+
+export interface SurfaceVoice {
+    id: SurfaceVoiceId;
+    label: string;
+    energy: number;
+    torque: number;
+    /** Mud or sand wants a gentle ramp. */
+    softRamp?: boolean;
+}
+
+export const SURFACE_VOICES: Record<SurfaceVoiceId, SurfaceVoice> = {
+    tarmac:    { id: 'tarmac',    label: 'Tarmac',                 energy: 1.00, torque: 1.15 },
+    compacted: { id: 'compacted', label: 'Compacted gravel',       energy: 1.12, torque: 1.05 },
+    hardpack:  { id: 'hardpack',  label: 'Packed dirt',            energy: 1.18, torque: 1.00 },
+    mixed:     { id: 'mixed',     label: 'Mixed stones and roots', energy: 1.22, torque: 0.90 },
+    rock:      { id: 'rock',      label: 'Rock and roots',         energy: 1.35, torque: 0.85 },
+    mud:       { id: 'mud',       label: 'Mud or sand',            energy: 1.55, torque: 0.95, softRamp: true }
+};
+
+export const SURFACE_VOICE_KEYS: SurfaceVoiceId[] = ['tarmac', 'compacted', 'hardpack', 'mixed', 'rock', 'mud'];
+
+/** Percentages per voice. Any sum is accepted; the model normalises to 100. */
+export interface SurfaceMix {
+    tarmac: number;
+    compacted: number;
+    hardpack: number;
+    mixed: number;
+    rock: number;
+    mud: number;
+}
+
+/* The old four ids, kept for stored calibrations and old clients. */
+const LEGACY_SURFACE_SPLITS: Record<string, Partial<SurfaceMix>> = {
+    road: { tarmac: 100 },
+    gravel: { compacted: 100 },
+    mixed: { compacted: 20, hardpack: 40, mixed: 40 },
+    technical: { rock: 100 }
+};
+
+/** Parses a mix object and normalises it to 100; null when it has no weight. */
+export function normaliseSurfaceMix(value: unknown): SurfaceMix | null {
+    if (!value || typeof value !== 'object') return null;
+    const source = value as Record<string, unknown>;
+    const raw: SurfaceMix = { tarmac: 0, compacted: 0, hardpack: 0, mixed: 0, rock: 0, mud: 0 };
+    let total = 0;
+    for (const key of SURFACE_VOICE_KEYS) {
+        const n = parseFloat(String(source[key]));
+        raw[key] = Number.isFinite(n) && n > 0 ? n : 0;
+        total += raw[key];
+    }
+    if (!(total > 0)) return null;
+    const out = {} as SurfaceMix;
+    for (const key of SURFACE_VOICE_KEYS) out[key] = (raw[key] * 100) / total;
+    return out;
+}
+
+/** The composition a legacy surface id stands for; null when unknown. */
+export function legacySurfaceMix(value: unknown): SurfaceMix | null {
+    const split = LEGACY_SURFACE_SPLITS[String(value)];
+    return split ? normaliseSurfaceMix(split) : null;
+}
+
+/** A mix from the request, else the legacy id, else the old default. */
+export const DEFAULT_SURFACE_MIX: SurfaceMix = legacySurfaceMix(DEFAULT_SURFACE)!;
+
+export function surfaceMixFrom(mix: unknown, surfaceId: unknown): SurfaceMix {
+    return normaliseSurfaceMix(mix) ?? legacySurfaceMix(surfaceId) ?? DEFAULT_SURFACE_MIX;
+}
+
+function mixTotal(mix: SurfaceMix): number {
+    return SURFACE_VOICE_KEYS.reduce((sum, key) => sum + (mix[key] > 0 ? mix[key] : 0), 0);
+}
+
+/** Weighted mean of the voices' energy factors. */
+export function energyFactorOf(mix: SurfaceMix): number {
+    const total = mixTotal(mix);
+    if (!(total > 0)) return energyFactorOf(DEFAULT_SURFACE_MIX);
+    return SURFACE_VOICE_KEYS.reduce(
+        (sum, key) => sum + (mix[key] > 0 ? mix[key] : 0) * SURFACE_VOICES[key].energy, 0
+    ) / total;
+}
+
+/** Weighted mean of the voices' torque factors: the advice ceiling for the mix. */
+export function torqueFactorOf(mix: SurfaceMix): number {
+    const total = mixTotal(mix);
+    if (!(total > 0)) return torqueFactorOf(DEFAULT_SURFACE_MIX);
+    return SURFACE_VOICE_KEYS.reduce(
+        (sum, key) => sum + (mix[key] > 0 ? mix[key] : 0) * SURFACE_VOICES[key].torque, 0
+    ) / total;
+}
+
+/** Rock and mud at a quarter or more of the mix ask for the gentle ramp. */
+export function softRampOf(mix: SurfaceMix): boolean {
+    const total = mixTotal(mix);
+    if (!(total > 0)) return false;
+    return ((mix.rock > 0 ? mix.rock : 0) + (mix.mud > 0 ? mix.mud : 0)) / total >= 0.25;
+}
+
+/** The voice with the largest share; ties resolve to the first in voice order. */
+export function dominantSurfaceVoiceOf(mix: SurfaceMix): SurfaceVoiceId {
+    let best: SurfaceVoiceId = SURFACE_VOICE_KEYS[0];
+    for (const key of SURFACE_VOICE_KEYS) {
+        if ((mix[key] > 0 ? mix[key] : 0) > (mix[best] > 0 ? mix[best] : 0)) best = key;
+    }
+    return best;
+}
+
+export interface SurfaceMixReport extends SurfaceMix {
+    factor: number;
+    torqueFactor: number;
+    softRamp: boolean;
+}
+
+/** The normalised mix plus the figures the endpoints quote for it. */
+export function surfaceMixReport(mix: SurfaceMix): SurfaceMixReport {
+    return {
+        ...(normaliseSurfaceMix(mix) ?? DEFAULT_SURFACE_MIX),
+        factor: energyFactorOf(mix),
+        torqueFactor: torqueFactorOf(mix),
+        softRamp: softRampOf(mix)
+    };
+}
+
 // Steep ground is less efficient: more torque, lower cadence, more heat.
 export const STEEP_ENERGY_PENALTY = 0.35;
 
@@ -112,7 +245,10 @@ export interface Terrain {
     km: number;
     hm: number;
     totalWeight: number;
-    surfaceId: string;
+    /** Legacy single-surface id; read when no mix is present. */
+    surfaceId?: string;
+    /** Per-surface composition; wins over surfaceId when it carries any weight. */
+    surfaceMix?: SurfaceMix | null;
     steepShare: number;
 }
 
@@ -120,9 +256,20 @@ export function terrainEnergy(t: Terrain) {
     const flat = t.km * FLAT_WH_PER_KM;
     const climb = t.hm * CLIMB_WH_PER_M_PER_100KG * (t.totalWeight / 100);
     const base = flat + climb;
-    const surfaceFactor = SURFACE_FACTORS[surfaceIdOf(t.surfaceId)];
+    const surfaceMix = surfaceMixFrom(t.surfaceMix, t.surfaceId);
+    const surfaceFactor = energyFactorOf(surfaceMix);
     const steepnessFactor = steepnessFactorOf(t.steepShare);
-    return { flat, climb, base, surfaceFactor, steepnessFactor, estimated: base * surfaceFactor * steepnessFactor };
+    return {
+        flat,
+        climb,
+        base,
+        surfaceMix,
+        surfaceFactor,
+        surfaceTorqueFactor: torqueFactorOf(surfaceMix),
+        surfaceSoftRamp: softRampOf(surfaceMix),
+        steepnessFactor,
+        estimated: base * surfaceFactor * steepnessFactor
+    };
 }
 
 /** Rides the consumption was measured on, described like a route. */
@@ -131,7 +278,10 @@ export interface MeasuredRides {
     km: number;
     hm: number;
     efficiency: number;
-    surfaceId: string;
+    /** Legacy single-surface id of the measured rides. */
+    surfaceId?: string;
+    /** Per-surface composition of the measured rides. */
+    surfaceMix?: SurfaceMix | null;
     steepShare: number;
     /** Motor energy over motor + rider energy on those rides, when measured. */
     motorShare: number | null;
@@ -300,7 +450,15 @@ export function tunerRanges(i: TunerRangeInput) {
     const personal = personalFactorOf(i.real, i.totalWeight);
     const calibrated = personal.applied && i.real != null;
     const ground = calibrated
-        ? { climbMPerKm: i.real!.hm / i.real!.km, surfaceId: i.real!.surfaceId, steepShare: i.real!.steepShare }
+        ? {
+            climbMPerKm: i.real!.hm / i.real!.km,
+            /* Always the voice the mix actually used, whether it arrived as a
+               mix or as a legacy single surface: the field means the same
+               thing on every path. */
+            surfaceId: dominantSurfaceVoiceOf(surfaceMixFrom(i.real!.surfaceMix, i.real!.surfaceId)),
+            surfaceMix: surfaceMixFrom(i.real!.surfaceMix, i.real!.surfaceId),
+            steepShare: i.real!.steepShare
+        }
         : { climbMPerKm: REFERENCE_CLIMB_M_PER_KM, surfaceId: REFERENCE_SURFACE, steepShare: 0 };
     const terrain = terrainEnergy({ km: 1, hm: ground.climbMPerKm, totalWeight: i.totalWeight, ...ground });
     const mix = modeMixFor(terrain.climb / terrain.base);

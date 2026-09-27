@@ -1,20 +1,33 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+    DEFAULT_SURFACE_MIX,
     MODE_KEYS,
     MeasuredRides,
     ModeKey,
     PACK_EFFICIENCY_DEFAULT,
     REFERENCE_CLIMB_M_PER_KM,
     REFERENCE_SURFACE,
+    SURFACE_VOICES,
+    SURFACE_VOICE_KEYS,
+    SurfaceMix,
+    SurfaceVoiceId,
+    dominantSurfaceVoiceOf,
+    energyFactorOf,
     estimateRouteEnergy,
+    legacySurfaceMix,
     modeMixFor,
+    normaliseSurfaceMix,
     packEfficiencyOf,
     personalFactorOf,
     reservePercentOf,
+    softRampOf,
     surfaceIdOf,
+    surfaceMixFrom,
+    surfaceMixReport,
     climbSpeedKmH,
     terrainEnergy,
+    torqueFactorOf,
     tunerRanges
 } from './energy-model';
 
@@ -126,6 +139,114 @@ test('an unknown surface is read as mixed', () => {
     assert.equal(surfaceIdOf('gravel'), 'gravel');
     assert.equal(surfaceIdOf('ice'), 'mixed');
     assert.equal(surfaceIdOf(undefined), 'mixed');
+});
+
+/* ------------------------------------------------------------------
+ * SURFACE COMPOSITION
+ * ------------------------------------------------------------------ */
+
+const NO_SURFACE: SurfaceMix = { tarmac: 0, compacted: 0, hardpack: 0, mixed: 0, rock: 0, mud: 0 };
+
+function sharesOf(mix: SurfaceMix): number[] {
+    return SURFACE_VOICE_KEYS.map((key) => mix[key]);
+}
+
+test('the six surface voices carry the agreed energy and torque factors', () => {
+    const expected: Record<SurfaceVoiceId, [number, number]> = {
+        tarmac: [1.00, 1.15],
+        compacted: [1.12, 1.05],
+        hardpack: [1.18, 1.00],
+        mixed: [1.22, 0.90],
+        rock: [1.35, 0.85],
+        mud: [1.55, 0.95]
+    };
+    for (const key of SURFACE_VOICE_KEYS) {
+        assert.equal(SURFACE_VOICES[key].id, key);
+        assert.equal(SURFACE_VOICES[key].energy, expected[key][0], `${key} energy`);
+        assert.equal(SURFACE_VOICES[key].torque, expected[key][1], `${key} torque`);
+    }
+    assert.equal(SURFACE_VOICES.mud.softRamp, true);
+    for (const key of SURFACE_VOICE_KEYS) {
+        if (key !== 'mud') assert.ok(!SURFACE_VOICES[key].softRamp, `${key} must not ask for the soft ramp`);
+    }
+});
+
+test('each legacy surface id resolves to its split and its weighted factors', () => {
+    const legacy: Array<[string, Partial<SurfaceMix>, number, number]> = [
+        ['road', { tarmac: 100 }, 1.00, 1.15],
+        ['gravel', { compacted: 100 }, 1.12, 1.05],
+        ['mixed', { compacted: 20, hardpack: 40, mixed: 40 }, 1.184, 0.97],
+        ['technical', { rock: 100 }, 1.35, 0.85]
+    ];
+    for (const [id, split, energy, torque] of legacy) {
+        const mix = legacySurfaceMix(id);
+        assert.ok(mix, `${id} must resolve`);
+        for (const key of SURFACE_VOICE_KEYS) {
+            assert.equal(mix![key], (split as Record<string, number>)[key] ?? 0, `${id}/${key}`);
+        }
+        assert.ok(Math.abs(energyFactorOf(mix!) - energy) < 1e-9, `${id}: ${energyFactorOf(mix!)}`);
+        assert.ok(Math.abs(torqueFactorOf(mix!) - torque) < 1e-9, `${id}: ${torqueFactorOf(mix!)}`);
+    }
+    assert.equal(legacySurfaceMix('ice'), null);
+});
+
+test('a mix of any sum is normalised to percentages of 100', () => {
+    const mix = normaliseSurfaceMix({ tarmac: 10, mud: 30 });
+    assert.ok(mix);
+    assert.equal(mix!.tarmac, 25);
+    assert.equal(mix!.mud, 75);
+    assert.equal(sharesOf(mix!).reduce((sum, n) => sum + n, 0), 100);
+});
+
+test('negative shares are dropped and a mix with no weight is null', () => {
+    const mix = normaliseSurfaceMix({ tarmac: -40, rock: 60 });
+    assert.ok(mix);
+    assert.equal(mix!.tarmac, 0);
+    assert.equal(mix!.rock, 100);
+    assert.equal(normaliseSurfaceMix({ tarmac: -40, rock: -60 }), null);
+    assert.equal(normaliseSurfaceMix({}), null);
+    assert.equal(normaliseSurfaceMix(null), null);
+});
+
+test('a string-valued mix normalises exactly like numbers', () => {
+    const numbers = normaliseSurfaceMix({ tarmac: 15, mixed: 35 });
+    const strings = normaliseSurfaceMix({ tarmac: '15', mixed: '35' });
+    assert.deepEqual(strings, numbers);
+    assert.equal(strings!.tarmac, 30);
+    assert.equal(strings!.mixed, 70);
+});
+
+test('a zero or absent mix falls back to the legacy mixed preset', () => {
+    assert.deepEqual(DEFAULT_SURFACE_MIX, legacySurfaceMix('mixed'));
+    assert.deepEqual(surfaceMixFrom({}, undefined), DEFAULT_SURFACE_MIX);
+    assert.deepEqual(surfaceMixFrom({ tarmac: 0, rock: -5 }, 'ice'), DEFAULT_SURFACE_MIX);
+    assert.deepEqual(surfaceMixFrom(null, 'road'), legacySurfaceMix('road'));
+    assert.equal(DEFAULT_SURFACE_MIX.hardpack, 40);
+});
+
+test('the soft ramp triggers at exactly a quarter rock or mud', () => {
+    assert.equal(softRampOf({ ...NO_SURFACE, tarmac: 75, rock: 25 }), true);
+    assert.equal(softRampOf({ ...NO_SURFACE, tarmac: 75.1, rock: 24.9 }), false);
+    assert.equal(softRampOf({ ...NO_SURFACE, tarmac: 75, mud: 25 }), true);
+    assert.equal(softRampOf({ ...NO_SURFACE, tarmac: 50, rock: 10, mud: 15 }), true);
+    assert.equal(softRampOf(DEFAULT_SURFACE_MIX), false);
+});
+
+test('the dominant voice is the largest share and a tie keeps the voice order', () => {
+    assert.equal(dominantSurfaceVoiceOf({ ...NO_SURFACE, tarmac: 30, rock: 70 }), 'rock');
+    assert.equal(dominantSurfaceVoiceOf({ ...NO_SURFACE, rock: 50, mud: 50 }), 'rock');
+    assert.equal(dominantSurfaceVoiceOf({ ...NO_SURFACE, hardpack: 40, mixed: 40 }), 'hardpack');
+    assert.equal(dominantSurfaceVoiceOf(legacySurfaceMix('mixed')!), 'hardpack');
+});
+
+test('the mix report carries the normalised shares and the figures the endpoints quote', () => {
+    const report = surfaceMixReport({ ...NO_SURFACE, rock: 70, tarmac: 30 });
+    assert.equal(report.rock, 70);
+    assert.equal(report.tarmac, 30);
+    assert.equal(report.mud, 0);
+    assert.ok(Math.abs(report.factor - 1.245) < 1e-9);
+    assert.ok(Math.abs(report.torqueFactor - 0.94) < 1e-9);
+    assert.equal(report.softRamp, true);
 });
 
 /* Motor watts at the default Tuner setup (102 kg, 150 W, 80 RPM) and for the

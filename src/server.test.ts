@@ -87,6 +87,72 @@ test('a reserve of zero is honoured by both route endpoints', async () => {
     assert.equal(modes.body.usableWh, 800);
 });
 
+test('a surface mix sets the dominant voice and the weighted factor on the mission', async () => {
+    const r = await post('/api/calculate-mission', {
+        ...RIDER, targetKm: 40, targetH_m: 0, surfaceMix: { rock: 70, tarmac: 30 }
+    });
+    assert.equal(r.status, 200);
+    assert.equal(r.body.surface.id, 'rock');
+    assert.ok(Math.abs(r.body.surfaceMix.factor - 1.245) < 1e-9);
+    assert.ok(Math.abs(r.body.surfaceMix.torqueFactor - 0.94) < 1e-9);
+    assert.equal(r.body.surfaceMix.softRamp, true);
+    assert.equal(r.body.surfaceMix.rock, 70);
+    assert.equal(r.body.surfaceMix.tarmac, 30);
+    assert.equal(r.body.energy.base, 152);
+    assert.equal(r.body.energy.estimated, Math.round(152 * r.body.surfaceMix.factor));
+    assert.equal(r.body.energy.estimated, 189);
+
+    const grip = await post('/api/calculate-mission', {
+        ...RIDER, targetKm: 40, targetH_m: 0, surfaceMix: { tarmac: 70, rock: 30 }
+    });
+    assert.equal(grip.body.surface.id, 'tarmac');
+    assert.ok(Math.abs(grip.body.surfaceMix.factor - 1.105) < 1e-9);
+    assert.equal(grip.body.surfaceMix.softRamp, true);
+});
+
+test('a rock-heavy mix lowers the torque ceilings and the route modes say so', async () => {
+    const rocky = await post('/api/route-modes', {
+        ...RIDER, targetKm: 40, targetH_m: 500, surfaceMix: { rock: 70, tarmac: 30 }
+    });
+    assert.equal(rocky.status, 200);
+    assert.equal(rocky.body.surface.id, 'rock');
+    assert.ok(Math.abs(rocky.body.surfaceMix.factor - 1.245) < 1e-9);
+    assert.ok(Math.abs(rocky.body.surfaceMix.torqueFactor - 0.94) < 1e-9);
+    assert.ok(rocky.body.notes.some((n: string) => n.includes('torque ceilings were lowered for grip')));
+    assert.ok(rocky.body.notes.some((n: string) => n.includes('60 RPM')));
+
+    const grip = await post('/api/route-modes', {
+        ...RIDER, targetKm: 40, targetH_m: 500, surfaceMix: { tarmac: 100 }
+    });
+    assert.ok(Math.abs(grip.body.surfaceMix.torqueFactor - 1.15) < 1e-9);
+    assert.ok(!grip.body.notes.some((n: string) => n.includes('torque ceilings were lowered')));
+
+    const torqueOf = (body: Record<string, any>) =>
+        body.modes.find((m: { key: string }) => m.key === 'endurance').maxTorque;
+    assert.ok(torqueOf(rocky.body) < torqueOf(grip.body),
+        `rock ${torqueOf(rocky.body)} Nm vs tarmac ${torqueOf(grip.body)} Nm`);
+});
+
+test('a legacy surface id maps to the same normalised split as the explicit mix', async () => {
+    const legacy = await post('/api/calculate-mission', {
+        ...RIDER, targetKm: 40, targetH_m: 0, surface: 'mixed'
+    });
+    const explicit = await post('/api/calculate-mission', {
+        ...RIDER, targetKm: 40, targetH_m: 0,
+        surfaceMix: { compacted: 20, hardpack: 40, mixed: 40 }
+    });
+    assert.equal(legacy.status, 200);
+    assert.equal(legacy.body.surface.id, 'hardpack');
+    assert.ok(Math.abs(legacy.body.surfaceMix.factor - 1.184) < 1e-9);
+    assert.ok(Math.abs(legacy.body.surfaceMix.torqueFactor - 0.97) < 1e-9);
+    assert.equal(legacy.body.surfaceMix.compacted, 20);
+    assert.equal(legacy.body.surfaceMix.hardpack, 40);
+    assert.equal(legacy.body.surfaceMix.mixed, 40);
+    assert.equal(legacy.body.surfaceMix.softRamp, false);
+    assert.equal(legacy.body.surfaceMix.factor, explicit.body.surfaceMix.factor);
+    assert.equal(legacy.body.energy.estimated, explicit.body.energy.estimated);
+});
+
 test('the Tuner and the Route quote the same consumption for the same ground', async () => {
     const tuner = await post('/api/calculate', RIDER);
     const route = await post('/api/calculate-mission', {
@@ -106,6 +172,25 @@ test('the Tuner uses the calibration the client sends', async () => {
     assert.equal(calibrated.body.basedOnRealRides, true);
     assert.equal(calibrated.body.eco.basedOnRealRides, true);
     assert.notEqual(calibrated.body.eco.range, generic.body.eco.range);
+});
+
+test('the Tuner accepts a calibration carrying its own surface mix', async () => {
+    const rocky = await post('/api/calculate', {
+        ...RIDER, realWhPerKm: 9, realKm: 40, realHm: 1000, realEfficiency: 0.8,
+        realSurfaceMix: { rock: 100 }
+    });
+    assert.equal(rocky.status, 200);
+    assert.equal(rocky.body.basedOnRealRides, true);
+    assert.equal(rocky.body.rangeModel.basis, 'rides');
+    assert.equal(rocky.body.rangeModel.surface, 'rock');
+
+    const tarmac = await post('/api/calculate', {
+        ...RIDER, realWhPerKm: 9, realKm: 40, realHm: 1000, realEfficiency: 0.8,
+        realSurfaceMix: { tarmac: 60, rock: 40 }
+    });
+    assert.equal(tarmac.status, 200);
+    assert.equal(tarmac.body.basedOnRealRides, true);
+    assert.equal(tarmac.body.rangeModel.surface, 'tarmac');
 });
 
 test('the Tuner ranges stay plausible at the default setup', async () => {

@@ -4,16 +4,19 @@ import {
     MODE_KEYS,
     MeasuredRides,
     ModeKey,
-    SURFACE_FACTORS,
     clamp,
+    dominantSurfaceVoiceOf,
     estimateRouteEnergy,
     modeMixFor,
     motorShareMeasured,
     normaliseDistribution,
+    normaliseSurfaceMix,
     packEfficiencyOf,
     reservePercentOf,
     steepShareOf,
     surfaceIdOf,
+    surfaceMixFrom,
+    surfaceMixReport,
     tunerRanges
 } from './energy-model';
 
@@ -582,6 +585,7 @@ function readMeasuredRides(body: Record<string, unknown>): MeasuredRides | null 
         hm: hm > 0 ? hm : 0,
         efficiency: packEfficiencyOf(body.realEfficiency),
         surfaceId: surfaceIdOf(body.realSurface),
+        surfaceMix: normaliseSurfaceMix(body.realSurfaceMix),
         steepShare: steepPercent > 0 ? clamp(steepPercent / 100, 0, 1) : 0,
         motorShare: motorShareMeasured(body.realMotorShare)
     };
@@ -591,21 +595,21 @@ function readMeasuredRides(body: Record<string, unknown>): MeasuredRides | null 
    verdict and the proposed modes always come from the same estimate. */
 function readRouteEnergy(body: Record<string, unknown>, km: number, hm: number, totalWeight: number, batteryWh: number) {
     const gradeDistribution = normaliseDistribution(body.gradeDistribution);
-    const surfaceId = surfaceIdOf(body.surface);
+    const surfaceMix = surfaceMixFrom(body.surfaceMix, body.surface);
     const reservePercent = reservePercentOf(body.reservePercent);
     const real = readMeasuredRides(body);
     const energy = estimateRouteEnergy({
         km,
         hm,
         totalWeight,
-        surfaceId,
+        surfaceMix,
         steepShare: steepShareOf(gradeDistribution),
         batteryWh,
         reservePercent,
         elevationQuality: body.elevationQuality == null ? null : String(body.elevationQuality),
         real
     });
-    return { gradeDistribution, surfaceId, reservePercent, real, energy };
+    return { gradeDistribution, surfaceMix, reservePercent, real, energy };
 }
 
 app.post('/api/calculate-mission', (req: Request, res: Response) => {
@@ -630,7 +634,7 @@ app.post('/api/calculate-mission', (req: Request, res: Response) => {
     const batteryWh = pickBattery(body).wh;
     const totalWeight = riderWeight + bikeWeight;
 
-    const { gradeDistribution, surfaceId, reservePercent, real, energy } =
+    const { gradeDistribution, surfaceMix, reservePercent, real, energy } =
         readRouteEnergy(body, km, hm, totalWeight, batteryWh);
     const { flat: energyFlat, climb: energyClimb, feasible, scalingFactor } = energy;
 
@@ -715,7 +719,8 @@ app.post('/api/calculate-mission', (req: Request, res: Response) => {
             flat: Math.round(energyFlat),
             climb: Math.round(energyClimb)
         },
-        surface: { id: surfaceId, factor: energy.surfaceFactor },
+        surface: { id: dominantSurfaceVoiceOf(surfaceMix), factor: energy.surfaceFactor },
+        surfaceMix: surfaceMixReport(surfaceMix),
         steepnessFactor: energy.steepnessFactor,
         personalFactor: Math.round(energy.personal.factor * 100) / 100,
         basedOnRealRides: energy.personal.applied,
@@ -802,7 +807,7 @@ app.post('/api/route-modes', (req: Request, res: Response) => {
     const batteryWh = pickBattery(body).wh;
     const km = pickNumber(body.targetKm, 0);
     const hm = pickNumber(body.targetH_m, 0);
-    const { gradeDistribution, surfaceId, energy } = readRouteEnergy(body, km, hm, totalWeight, batteryWh);
+    const { gradeDistribution, surfaceMix, energy } = readRouteEnergy(body, km, hm, totalWeight, batteryWh);
 
     const summary = (body.climbSummary && typeof body.climbSummary === 'object')
         ? body.climbSummary as Record<string, unknown>
@@ -814,8 +819,18 @@ app.post('/api/route-modes', (req: Request, res: Response) => {
         : 0;
 
     const tightOnBattery = !energy.feasible;
+    /* The mix decides the torque advice: loose or steep ground has less grip
+       and lowers the ceilings, tarmac raises them. */
+    const torqueFactor = energy.surfaceTorqueFactor;
 
     const notes: string[] = [];
+
+    if (torqueFactor < 1) {
+        notes.push(
+            `The torque ceilings were lowered for grip on this surface: at ${CLIMB_CADENCE_RPM} RPM ` +
+            'a mode may deliver less than its Max Power.'
+        );
+    }
 
     function propose(
         key: string,
@@ -859,7 +874,7 @@ app.post('/api/route-modes', (req: Request, res: Response) => {
     // ENDURANCE — the baseline for flat and rolling transit.
     selected.push(propose(
         'endurance', 'ROUTE ENDURANCE', 1.50,
-        { overrun: 1, start: 2, continued: 2 }, 1.0,
+        { overrun: 1, start: 2, continued: 2 }, torqueFactor,
         'Low fixed support for flat and rolling transit. Lowest consumption of the set.'
     ));
 
@@ -868,7 +883,7 @@ app.post('/api/route-modes', (req: Request, res: Response) => {
         const climbWkg = clamp(3.2 + Math.max(0, medianClimbGrade - 6) * 0.30, 2.5, 8.0);
         selected.push(propose(
             'climb', 'ROUTE CLIMB', climbWkg,
-            { overrun: 2, start: 3, continued: 4 }, 1.0,
+            { overrun: 2, start: 3, continued: 4 }, torqueFactor,
             `Tuned for the ${climbCount} climb(s) detected, median grade ${medianClimbGrade.toFixed(1)}%.`
         ));
     } else {
@@ -879,13 +894,13 @@ app.post('/api/route-modes', (req: Request, res: Response) => {
     if (tightOnBattery) {
         selected.push(propose(
             'reserve', 'ROUTE RESERVE', 1.10,
-            { overrun: 1, start: 1, continued: 1 }, 1.0,
+            { overrun: 1, start: 1, continued: 1 }, torqueFactor,
             'The route exceeds the usable battery with a normal setup: use this to stretch the final part.'
         ));
     } else if (steepShare >= 12) {
         selected.push(propose(
             'tech', 'ROUTE TECH', 4.50,
-            { overrun: 1, start: 2, continued: 5 }, 1.25,
+            { overrun: 1, start: 2, continued: 5 }, torqueFactor,
             `Steep sections are ${steepShare.toFixed(0)}% of the route: soft ramp and extra torque for traction.`
         ));
     } else if (steepShare > 0) {
@@ -907,7 +922,8 @@ app.post('/api/route-modes', (req: Request, res: Response) => {
         steepShare: Math.round(steepShare * 10) / 10,
         climbCount,
         medianClimbGrade: Math.round(medianClimbGrade * 10) / 10,
-        surface: { id: surfaceId, factor: SURFACE_FACTORS[surfaceId] },
+        surface: { id: dominantSurfaceVoiceOf(surfaceMix), factor: energy.surfaceFactor },
+        surfaceMix: surfaceMixReport(surfaceMix),
         modes: selected,
         notes
     });

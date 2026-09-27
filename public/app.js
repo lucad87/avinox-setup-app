@@ -90,6 +90,7 @@ function calibrationPayload() {
     };
     if (cal.efficiency) payload.realEfficiency = cal.efficiency;
     if (cal.surface) payload.realSurface = cal.surface;
+    if (cal.surfaceMix) payload.realSurfaceMix = cal.surfaceMix;
     if (Number.isFinite(cal.steepSharePct)) payload.realSteepShare = cal.steepSharePct;
     if (cal.motorShare) payload.realMotorShare = cal.motorShare;
     return payload;
@@ -187,6 +188,190 @@ function rideSteepSharePct(ride) {
 
 function selectedSurface() {
     return (document.getElementById('surface') || {}).value || 'mixed';
+}
+
+const SURFACE_VOICES = [
+    { id: 'tarmac', label: 'Tarmac' },
+    { id: 'compacted', label: 'Compacted gravel' },
+    { id: 'hardpack', label: 'Packed dirt' },
+    { id: 'mixed', label: 'Mixed stones and roots' },
+    { id: 'rock', label: 'Rock and roots' },
+    { id: 'mud', label: 'Mud or sand' }
+];
+
+const SURFACE_PRESETS = {
+    road: { tarmac: 100 },
+    gravel: { compacted: 100 },
+    mixed: { compacted: 20, hardpack: 40, mixed: 40 },
+    technical: { rock: 100 }
+};
+
+function surfaceMixZero() {
+    const mix = {};
+    SURFACE_VOICES.forEach((v) => { mix[v.id] = 0; });
+    return mix;
+}
+
+function surfaceMixFromPreset(presetId) {
+    const mix = surfaceMixZero();
+    const preset = SURFACE_PRESETS[presetId];
+    if (preset) Object.keys(preset).forEach((id) => { mix[id] = preset[id]; });
+    return mix;
+}
+
+/* The mix in the form, as percentages. Without the inputs (markup from an
+   older version) it falls back to the preset of the selected surface. */
+function getSurfaceMix() {
+    const mix = surfaceMixZero();
+    let hasInputs = false;
+    SURFACE_VOICES.forEach((v) => {
+        const el = document.getElementById('mix-' + v.id);
+        if (!el) return;
+        hasInputs = true;
+        const n = Number(el.value);
+        mix[v.id] = Number.isFinite(n) && n > 0 ? Math.round(n * 10) / 10 : 0;
+    });
+    return hasInputs ? mix : surfaceMixFromPreset(selectedSurface());
+}
+
+function surfaceMixTotal(mix) {
+    return SURFACE_VOICES.reduce((sum, v) => sum + (Number(mix[v.id]) || 0), 0);
+}
+
+function surfaceMixParts(mix) {
+    return SURFACE_VOICES
+        .map((v) => ({ id: v.id, label: v.label, pct: Number(mix[v.id]) || 0 }))
+        .filter((v) => v.pct > 0)
+        .sort((a, b) => b.pct - a.pct);
+}
+
+/* "40% packed dirt · 30% mixed stones and roots", only the voices above 0. */
+function surfaceMixText(mix) {
+    return surfaceMixParts(mix)
+        .map((v) => Math.round(v.pct * 10) / 10 + '% ' + v.label.toLowerCase())
+        .join(' · ');
+}
+
+function surfaceMixMatchesPreset(mix, preset) {
+    return SURFACE_VOICES.every((v) => (Number(mix[v.id]) || 0) === (Number(preset[v.id]) || 0));
+}
+
+/* The line the collapsed route header shows. A preset still reads by name;
+   a custom mix is named by its dominant voice, kept short. */
+function surfaceMixHeadline() {
+    const select = document.getElementById('surface');
+    if (!select || select.selectedIndex < 0) return '';
+    if (select.value === 'custom') {
+        const top = surfaceMixParts(getSurfaceMix())[0];
+        if (top) return 'Custom mix — ' + Math.round(top.pct) + '% ' + top.label.toLowerCase();
+    }
+    return select.options[select.selectedIndex].text;
+}
+
+function renderSurfaceMix() {
+    const mix = getSurfaceMix();
+    const total = surfaceMixTotal(mix);
+    const summary = document.getElementById('surfaceMixSummary');
+    if (summary) {
+        const text = surfaceMixText(mix);
+        summary.innerText = text
+            ? text + (Math.abs(total - 100) > 0.5 ? ' — totals ' + Math.round(total * 10) / 10 + '%' : '')
+            : '—';
+    }
+    const hint = document.getElementById('surfaceMixHint');
+    if (hint) {
+        if (total <= 0) {
+            hint.classList.remove('hidden');
+            hint.classList.add('energy-warn');
+            hint.innerText = 'Every percentage is zero: the default mixed ground is used instead.';
+        } else if (Math.abs(total - 100) > 0.5) {
+            hint.classList.remove('hidden');
+            hint.classList.add('energy-warn');
+            hint.innerText = 'The percentages total ' + Math.round(total * 10) / 10
+                + '%: the server normalises them to 100% before using them.';
+        } else {
+            hint.classList.add('hidden');
+            hint.innerText = '';
+        }
+    }
+}
+
+function applySurfacePreset(presetId) {
+    const select = document.getElementById('surface');
+    if (select && SURFACE_PRESETS[presetId]) select.value = presetId;
+    const mix = surfaceMixFromPreset(presetId);
+    SURFACE_VOICES.forEach((v) => {
+        const el = document.getElementById('mix-' + v.id);
+        if (el) el.value = String(mix[v.id]);
+    });
+    renderSurfaceMix();
+    if (typeof saveForm === 'function') saveForm();
+    updateRouteLoadState();
+}
+
+/* Any edit to a percentage takes the selector out of its preset: unless the
+   numbers still match it, the surface shown is Custom. */
+function onSurfaceMixEdited() {
+    const select = document.getElementById('surface');
+    if (select && SURFACE_PRESETS[select.value]
+        && !surfaceMixMatchesPreset(getSurfaceMix(), SURFACE_PRESETS[select.value])) {
+        select.value = 'custom';
+    }
+    renderSurfaceMix();
+    if (typeof saveForm === 'function') saveForm();
+    updateRouteLoadState();
+}
+
+function initSurfaceMix() {
+    const body = document.getElementById('surfaceMixBody');
+    if (!body) return;
+    body.innerHTML = SURFACE_VOICES.map((v) =>
+        '<div class="kv-row" style="align-items:center">'
+        + '<label class="kv-label" for="mix-' + v.id + '">' + v.label + '</label>'
+        + '<span style="display:flex;align-items:center;gap:.4rem">'
+        + '<input type="number" id="mix-' + v.id + '" class="input" min="0" max="100" step="1" inputmode="numeric" value="0"'
+        + ' style="width:76px;min-height:30px;padding:.25rem .45rem;text-align:right" aria-label="' + v.label + ' percentage">'
+        + '<span class="hint">%</span></span></div>').join('');
+    body.addEventListener('input', onSurfaceMixEdited);
+    body.addEventListener('change', onSurfaceMixEdited);
+
+    const select = document.getElementById('surface');
+    if (select) {
+        select.addEventListener('change', () => {
+            if (SURFACE_PRESETS[select.value]) applySurfacePreset(select.value);
+            else { renderSurfaceMix(); updateRouteLoadState(); }
+        });
+    }
+
+    /* Where the mix comes from, in order of authority: what the user last
+       chose (the saved form), then the ground a calibration was measured on,
+       then the default preset. */
+    let restored = null;
+    try {
+        const savedForm = JSON.parse(localStorage.getItem(FORM_KEY) || '{}');
+        if (savedForm.surfaceMix && surfaceMixTotal(savedForm.surfaceMix) > 0) {
+            restored = { mix: savedForm.surfaceMix, surfaceId: savedForm.surfaceId || null };
+        }
+    } catch (e) { /* ignore */ }
+    if (!restored) {
+        const saved = (typeof getCalibration === 'function') ? getCalibration() : null;
+        if (saved && saved.surfaceMix && surfaceMixTotal(saved.surfaceMix) > 0) {
+            restored = { mix: saved.surfaceMix, surfaceId: null };
+        }
+    }
+    if (restored) {
+        SURFACE_VOICES.forEach((v) => {
+            const el = document.getElementById('mix-' + v.id);
+            if (el) el.value = String(Number(restored.mix[v.id]) || 0);
+        });
+        const asPreset = Object.keys(SURFACE_PRESETS)
+            .find((id) => surfaceMixMatchesPreset(getSurfaceMix(), SURFACE_PRESETS[id]));
+        if (select) select.value = asPreset || (SURFACE_PRESETS[restored.surfaceId] ? restored.surfaceId : 'custom');
+        renderSurfaceMix();
+        updateRouteLoadState();
+        return;
+    }
+    applySurfacePreset(select && SURFACE_PRESETS[select.value] ? select.value : 'mixed');
 }
 
 function efficiencyText(eff) {
@@ -2064,6 +2249,7 @@ async function handleProtoFiles(files, opts) {
                     efficiency: efficiency.efficiency,
                     efficiencyMeasured: efficiency.measured,
                     surface: selectedSurface(),
+                    surfaceMix: getSurfaceMix(),
                     steepSharePct: Math.round(steepSharePct * 10) / 10,
                     /* How much of the work the motor did on these rides: the
                        Tuner splits the measured consumption between the modes
@@ -2308,6 +2494,13 @@ function saveForm() {
             const el = document.getElementById(id);
             if (el) data[id] = el.value;
         });
+        /* The surface and its composition are part of the setup the user
+           chose: they survive a reload too, not only a calibration. */
+        const surf = document.getElementById('surface');
+        if (surf) data.surfaceId = surf.value;
+        if (typeof getSurfaceMix === 'function' && document.getElementById('mix-tarmac')) {
+            data.surfaceMix = getSurfaceMix();
+        }
         localStorage.setItem(FORM_KEY, JSON.stringify(data));
     } catch (e) { /* ignore */ }
 }
@@ -3319,6 +3512,7 @@ document.getElementById('missionForm').addEventListener('submit', async (e) => {
         targetKm: document.getElementById('targetKm').value,
         targetH_m: document.getElementById('targetH_m').value,
         surface: document.getElementById('surface').value,
+        surfaceMix: getSurfaceMix(),
         reservePercent: document.getElementById('reservePercent').value,
         gradeDistribution: (routeGrades && routeGrades.ok) ? routeGrades.distribution : null,
         climbSummary: (routeGrades && routeGrades.ok) ? routeGrades.climbSummary : null,
@@ -3338,6 +3532,7 @@ document.getElementById('missionForm').addEventListener('submit', async (e) => {
         data.realEfficiency = selectedRideMetrics.efficiency.efficiency;
         /* The recording IS the route: same surface, same grades. */
         data.realSurface = data.surface;
+        data.realSurfaceMix = data.surfaceMix;
         data.realSteepShare = data.climbSummary ? data.climbSummary.steepShare : 0;
         lastFactorSource = 'ride';
     } else {
@@ -3399,6 +3594,7 @@ document.getElementById('missionForm').addEventListener('submit', async (e) => {
 
 window.addEventListener('DOMContentLoaded', () => {
     restoreForm();
+    initSurfaceMix();
     updateSetup();
     initCalibration();
     initKbDialog();
@@ -3730,8 +3926,7 @@ function resetApp() {
     if (targetKm) targetKm.value = '70';
     const targetH = document.getElementById('targetH_m');
     if (targetH) targetH.value = '1500';
-    const surface = document.getElementById('surface');
-    if (surface) surface.value = 'mixed';
+    applySurfacePreset('mixed');
     const reserve = document.getElementById('reservePercent');
     if (reserve) reserve.value = '15';
 
@@ -3949,8 +4144,7 @@ function updateRouteLoadState() {
     if (!el) return;
     const km = (document.getElementById('targetKm') || {}).value || '';
     const hm = (document.getElementById('targetH_m') || {}).value;
-    const surface = document.getElementById('surface');
-    const surfaceTxt = surface && surface.selectedIndex >= 0 ? surface.options[surface.selectedIndex].text : '';
+    const surfaceTxt = surfaceMixHeadline();
     const ride = loadedRides[selectedRideIndex];
 
     let what = analysisSourceLabel || (ride ? ride.label : null) || 'Nothing loaded yet';
@@ -4127,8 +4321,14 @@ function renderEnergyCard(res, selectedBattery) {
     const physics = document.getElementById('energyBreakdown');
     if (physics) {
         const throttle = Math.round(res.scalingFactor * 100);
+        /* The mix response is new: fall back to the old single-surface factor
+           when the server has not sent it (records before the change). */
+        const surfaceFactor = res.surfaceMix && Number.isFinite(res.surfaceMix.factor)
+            ? res.surfaceMix.factor
+            : (res.surface && Number.isFinite(res.surface.factor) ? res.surface.factor : null);
         physics.innerHTML =
-            kvRow('Surface resistance:', '×' + res.surface.factor.toFixed(2)) +
+            (surfaceFactor != null ? kvRow('Surface resistance:', '×' + surfaceFactor.toFixed(2)) : '') +
+            (res.surfaceMix ? kvRow('Surface mix:', surfaceMixText(res.surfaceMix) || '—') : '') +
             kvRow('Steepness factor:', '×' + res.steepnessFactor.toFixed(2)) +
             kvRow('Safety throttling:', '<span class="' + (throttle >= 100 ? 'energy-ok' : 'energy-warn') + '">'
                 + throttle + '%</span> <span class="kv-hint">' + (throttle >= 100 ? '(no derate)' : '(derated)') + '</span>');
