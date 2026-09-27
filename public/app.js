@@ -390,10 +390,22 @@ function setSurfaceOsmStatus(text, warn) {
     el.innerText = text || '';
 }
 
+/* The track the reader works on: the planned route if one is loaded,
+   otherwise the selected ride's own GPS track. */
+function surfaceOsmPoints() {
+    if (Array.isArray(routePoints) && routePoints.length > 1) return routePoints;
+    const ride = (typeof loadedRides !== 'undefined' && loadedRides[selectedRideIndex]) || null;
+    if (ride) {
+        const points = rideTrackPoints(ride);
+        if (points.length > 1) return points;
+    }
+    return [];
+}
+
 function surfaceOsmButtonState() {
     const btn = document.getElementById('surfaceOsmBtn');
     if (!btn) return;
-    btn.disabled = surfaceOsmBusy || !Array.isArray(routePoints) || routePoints.length < 2;
+    btn.disabled = surfaceOsmBusy || surfaceOsmPoints().length < 2;
 }
 
 function onSurfaceOsmClick() {
@@ -402,14 +414,15 @@ function onSurfaceOsmClick() {
         setSurfaceOsmStatus('The OpenStreetMap reader is not available.', true);
         return;
     }
-    if (!Array.isArray(routePoints) || routePoints.length < 2) {
-        setSurfaceOsmStatus('Load a route file first.', true);
+    const points = surfaceOsmPoints();
+    if (points.length < 2) {
+        setSurfaceOsmStatus('Load a route or a ride first.', true);
         return;
     }
     surfaceOsmBusy = true;
     surfaceOsmButtonState();
     setSurfaceOsmStatus('Reading OpenStreetMap…', false);
-    AvinoxOsm.fetchSurfaceMix(routePoints, { sampleM: 500 }).then((res) => {
+    AvinoxOsm.fetchSurfaceMix(points, { sampleM: 500 }).then((res) => {
         if (!res || !res.ok || !(res.matched > 0)) {
             const reason = res && res.reason;
             setSurfaceOsmStatus(
