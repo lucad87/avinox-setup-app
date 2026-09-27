@@ -39,7 +39,8 @@
 
     /**
      * The six surface voices everything downstream speaks. `mix` always has
-     * exactly these keys.
+     * exactly these keys, and is computed over the tagged samples alone, so
+     * it totals 100% whenever there is anything to describe.
      */
     var VOICES = ['tarmac', 'compacted', 'hardpack', 'mixed', 'rock', 'mud'];
 
@@ -391,6 +392,7 @@
         if (ways.length === 0) return { ok: false, reason: 'empty' };
 
         var matched = 0;
+        var tagged = 0;
         var counts = {};
         VOICES.forEach(function (v) { counts[v] = 0; });
 
@@ -398,13 +400,16 @@
             var match = matchWay(sample, ways, matchRadiusM);
             var voice = match ? classifyTags(match.way.tags) : null;
             if (match) matched++;
-            if (voice) counts[voice]++;
+            if (voice) { tagged++; counts[voice]++; }
             return { km: sample.km, voice: voice };
         });
 
+        /* The mix is the composition of the *tagged* samples alone, so it
+           totals 100%: a way that carries only highway=* adds to the matched
+           count but never to the mix. */
         var mix = {};
         VOICES.forEach(function (v) {
-            mix[v] = matched > 0 ? round1((counts[v] / matched) * 100) : 0;
+            mix[v] = tagged > 0 ? round1((counts[v] / tagged) * 100) : 0;
         });
 
         var coverage = samples.length > 0 ? matched / samples.length : 0;
@@ -412,6 +417,7 @@
             ok: true,
             sampled: samples.length,
             matched: matched,
+            tagged: tagged,
             mix: mix,
             coverage: coverage,
             unknownShare: 1 - coverage,

@@ -32,6 +32,7 @@
     <script src="/route-file.js"></script>
     <script src="/avinox-proto-parser.js"></script>
     <script src="/ride-energy.js"></script>
+    <script src="/surface-osm.js"></script>
     <link rel="stylesheet" href="/styles.css">
     <script>
         /* Apply the saved (or system) theme before first paint to avoid a flash. */
@@ -294,7 +295,7 @@
                                     <label class="kv-label" for="rideSelector">Ride</label>
                                     <select id="rideSelector" class="select" aria-label="Select ride"></select>
                                 </div>
-                                <button type="button" id="changeFileBtn" class="mini-btn hidden" title="Choose another file">Change file</button>
+                                <button type="button" id="changeFileBtn" class="btn btn-ghost btn-sm hidden" title="Choose another file">Change file</button>
                                 <button type="submit" form="missionForm" class="btn btn-primary btn-sm">Analyze</button>
                             </div>
                         </div>
@@ -368,6 +369,11 @@
                                                 <span class="collapsible-chevron">▸</span>
                                             </summary>
                                             <div id="surfaceMixBody" class="track-list"></div>
+                                            <div style="padding:.55rem .6rem 0">
+                                                <button id="surfaceOsmBtn" type="button" class="btn btn-primary btn-sm" title="Reads the surface of the loaded route or ride from OpenStreetMap">Read the surface from OpenStreetMap</button>
+                                                <div id="surfaceOsmStatus" class="hint" style="margin-top:.35rem"></div>
+                                            </div>
+                                            <p class="hint" style="padding: .15rem .6rem .55rem">The track is sent to OpenStreetMap for this one request, only to read the surface of the ways along it. Nothing else leaves the device.</p>
                                             <p id="surfaceMixHint" class="hint hidden" style="padding: 0 .6rem .55rem"></p>
                                         </details>
                                     </div>

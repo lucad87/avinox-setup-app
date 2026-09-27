@@ -149,6 +149,7 @@ test('the mix percentages sum to 100 on a fixed fake response', async () => {
     assert.equal(result.ok, true);
     assert.equal(result.sampled, 4);
     assert.equal(result.matched, 4);
+    assert.equal(result.tagged, 4);
     assert.equal(result.coverage, 1);
     assert.equal(result.unknownShare, 0);
     const sum = VOICES.reduce((acc, v) => acc + result.mix[v], 0);
@@ -158,6 +159,24 @@ test('the mix percentages sum to 100 on a fixed fake response', async () => {
     assert.deepEqual(result.samples.map(s => s.voice), ['tarmac', 'tarmac', 'mud', 'mud']);
     assert.equal(result.samples[0].km, 0);
     assert.ok(Math.abs(result.samples[3].km - 1.5) < 1e-6);
+});
+
+test('a matched way with no usable surface tag counts as matched, not as mix', async () => {
+    const points = straightTrack(1000, 100);
+    const onlyHighway = {
+        type: 'way',
+        id: 7,
+        tags: { highway: 'track' },
+        geometry: [{ lat: 45, lon: 10 }, { lat: 45.01, lon: 10 }]
+    };
+    const result = await fetchSurfaceMix(points, {
+        fetch: async () => okResponse([onlyHighway])
+    });
+    assert.equal(result.ok, true);
+    assert.equal(result.sampled, 3);
+    assert.equal(result.matched, 3);
+    assert.equal(result.tagged, 0);
+    assert.equal(VOICES.reduce((acc, v) => acc + result.mix[v], 0), 0);
 });
 
 test('a failed fetch returns ok:false with a reason', async () => {
