@@ -1577,6 +1577,11 @@ code {
 #surfaceMixPanel { margin-top: .4rem; }
 #surfaceOsmBtn { width: 100%; }
 
+/* Nella riga di testa della scheda "Load a route" i due bottoni affiancano la
+   select della Ride: si stendono alla sua altezza (37px qui, 40px nel
+   breakpoint mobile), così i tre controlli restano allineati. */
+.step-actions .btn { align-self: stretch; }
+
 /* Card compatta del riepilogo file */
 .kv-compact { gap: .05rem; padding: .7rem .8rem; }
 .summary-stack:not(.hidden) { display: flex; flex-direction: column; gap: .5rem; }
