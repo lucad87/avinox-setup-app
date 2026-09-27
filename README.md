@@ -17,15 +17,16 @@ massima. I grafici di autonomia e durata si aggiornano con i valori impostati.
 
 **Route — quanto costa un percorso.** Una sola zona di caricamento accetta:
 - una **route pianificata** (`.gpx` / `.kml`): fattibilità energetica, distribuzione delle
-  pendenze, salite rilevate, profilo altimetrico, i modi che quel terreno richiede e il
-  **tracciato su mappa colorato per pendenza** (6 bande: Descent, Flat, Rolling, Climb, Steep,
-  Extreme);
+  pendenze, salite e discese rilevate, il **mix di superfici** (sei voci a percentuali —
+  compilabile a mano o con un click da OpenStreetMap), profilo altimetrico, i modi che quel
+  terreno richiede e il **tracciato su mappa colorato per pendenza** (6 bande: Descent, Flat,
+  Rolling, Climb, Steep, Extreme);
 - una **registrazione** (`.proto` dell'app DJI): analisi con i **numeri propri del giro**
   (distanza dall'odometro della bici, consumo misurato su quel file) più mappa, 9 gruppi di
   grafici dei sensori e calibrazione;
 - oppure valori inseriti a mano.
 
-I dettagli dell'analisi (pendenze, salite, mappa, profilo altimetrico, modi proposti) stanno in
+I dettagli dell'analisi (pendenze, salite e discese, superfici, mappa, profilo altimetrico, modi proposti) stanno in
 blocchi richiudibili con la cifra chiave nell'intestazione; verdetto e consumo restano sempre
 visibili. L'analisi legge i valori del Tuner e li segue: se cambi peso, cadenza o potenza nel
 Tuner, viene ricalcolata da sola.
@@ -46,6 +47,9 @@ Tuner, viene ricalcolata da sola.
 ### Dati e privacy
 
 Tutto viene elaborato **sul dispositivo**: i file non vengono mai caricati da nessuna parte.
+Unica eccezione, che avvii tu: il pulsante **Read the surface from OpenStreetMap** invia a
+OpenStreetMap le coordinate campionate del percorso o della registrazione caricati (non il file),
+per la singola richiesta che legge il fondo delle vie lungo la traccia.
 Percorsi e registrazioni caricati restano sul dispositivo (IndexedDB) e vengono ripristinati alla
 visita successiva. Nell'header: **Export** (un file JSON con i file caricati e la calibrazione),
 **Import** (per rimetterli, anche su un altro browser) e **Clear all data** (cancella tutto:
@@ -93,7 +97,8 @@ npm test
   autonomie del Tuner);
 - `src/server.test.ts` — le API, avviate su una porta libera;
 - `test/*.test.js` — i moduli del browser: energia dei giri e rendimento, parser `.proto` (con un
-  generatore di registrazioni sintetiche), pendenze e salite.
+  generatore di registrazioni sintetiche), pendenze, salite e discese, superfici (mix e lettore
+  OpenStreetMap).
 
 La verifica end-to-end nel browser resta manuale.
 
@@ -119,15 +124,17 @@ enter in the official DJI Avinox app**: assist level, max power and max torque. 
 runtime charts follow what you set.
 
 **Route — what a route costs.** A single drop zone accepts:
-- a **planned route** (`.gpx` / `.kml`): energy feasibility, grade distribution, detected climbs,
-  elevation profile, the modes the terrain calls for and the **track on a map coloured by
-  gradient** (six bands: Descent, Flat, Rolling, Climb, Steep, Extreme);
+- a **planned route** (`.gpx` / `.kml`): energy feasibility, grade distribution, detected climbs
+  and descents, the **surface mix** (six voices in percentages — typed by hand or read from
+  OpenStreetMap with one click), elevation profile, the modes the terrain calls for and the
+  **track on a map coloured by gradient** (six bands: Descent, Flat, Rolling, Climb, Steep,
+  Extreme);
 - a **recording** (`.proto` from the DJI app): analysed with **its own numbers** (distance from the
   bike's odometer, consumption measured on that file) plus its map, nine sensor graph groups and
   the calibration;
 - or values typed by hand.
 
-The analysis details (grades, climbs, map, elevation profile, proposed modes) sit in collapsible
+The analysis details (grades, climbs and descents, surfaces, map, elevation profile, proposed modes) sit in collapsible
 blocks whose header carries the key figure; the verdict and the consumption stay visible. The
 analysis reads the Tuner's values and follows them: change weight, cadence or rider power there and
 it recalculates by itself.
@@ -147,8 +154,11 @@ it recalculates by itself.
 
 ### Data and privacy
 
-Everything is processed **on the device**: the files are never uploaded anywhere. Loaded routes and
-recordings stay on the device (IndexedDB) and are restored on the next visit. In the header:
+Everything is processed **on the device**: the files are never uploaded anywhere.
+One exception, started by you: the **Read the surface from OpenStreetMap** button sends the
+sampled coordinates of the loaded route or recording (not the file) to OpenStreetMap, for the
+single request that reads the surface of the ways along the track.
+Loaded routes and recordings stay on the device (IndexedDB) and are restored on the next visit. In the header:
 **Export** (one JSON file with the loaded files plus the calibration), **Import** (to restore them,
 on another browser too) and **Clear all data** (removes files, calibration and saved settings).
 
@@ -193,7 +203,8 @@ npm test
 - `src/energy-model.test.ts` — the energy model (route estimate, personal factor, Tuner ranges);
 - `src/server.test.ts` — the API, started on a free port;
 - `test/*.test.js` — the browser modules: ride energy and efficiency, the `.proto` parser (with a
-  synthetic recording builder), grades and climbs.
+  synthetic recording builder), grades, climbs and descents, surfaces (the mix and the
+  OpenStreetMap reader).
 
 The end-to-end check in the browser is still manual.
 
