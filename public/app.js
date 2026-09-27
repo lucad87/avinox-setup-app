@@ -343,6 +343,9 @@ function initSurfaceMix() {
         });
     }
 
+    const osmBtn = document.getElementById('surfaceOsmBtn');
+    if (osmBtn) osmBtn.addEventListener('click', onSurfaceOsmClick);
+
     /* Where the mix comes from, in order of authority: what the user last
        chose (the saved form), then the ground a calibration was measured on,
        then the default preset. */
@@ -372,6 +375,78 @@ function initSurfaceMix() {
         return;
     }
     applySurfacePreset(select && SURFACE_PRESETS[select.value] ? select.value : 'mixed');
+}
+
+/* The OpenStreetMap reader, on an explicit click: it samples the loaded
+   route and fills the six percentages from the ways along it. Only the
+   sampled coordinates leave the device, for this one request — so it is a
+   button, never an automatic step. */
+let surfaceOsmBusy = false;
+
+function setSurfaceOsmStatus(text, warn) {
+    const el = document.getElementById('surfaceOsmStatus');
+    if (!el) return;
+    el.classList.toggle('energy-warn', !!warn);
+    el.innerText = text || '';
+}
+
+function surfaceOsmButtonState() {
+    const btn = document.getElementById('surfaceOsmBtn');
+    if (!btn) return;
+    btn.disabled = surfaceOsmBusy || !Array.isArray(routePoints) || routePoints.length < 2;
+}
+
+function onSurfaceOsmClick() {
+    if (surfaceOsmBusy) return;
+    if (typeof AvinoxOsm === 'undefined' || typeof AvinoxOsm.fetchSurfaceMix !== 'function') {
+        setSurfaceOsmStatus('The OpenStreetMap reader is not available.', true);
+        return;
+    }
+    if (!Array.isArray(routePoints) || routePoints.length < 2) {
+        setSurfaceOsmStatus('Load a route file first.', true);
+        return;
+    }
+    surfaceOsmBusy = true;
+    surfaceOsmButtonState();
+    setSurfaceOsmStatus('Reading OpenStreetMap…', false);
+    AvinoxOsm.fetchSurfaceMix(routePoints, { sampleM: 500 }).then((res) => {
+        if (!res || !res.ok || !(res.matched > 0)) {
+            const reason = res && res.reason;
+            setSurfaceOsmStatus(
+                reason === 'timeout' ? 'OpenStreetMap did not answer in time — try again.'
+                    : reason === 'empty' ? 'OpenStreetMap has no ways along this route.'
+                        : reason ? 'OpenStreetMap could not be reached — try again later.'
+                            : 'OpenStreetMap found no surface tags along this route — set the mix by hand.',
+                true);
+            return;
+        }
+        SURFACE_VOICES.forEach((v) => {
+            const el = document.getElementById('mix-' + v.id);
+            /* The reader's own one-decimal share: rounding to whole numbers
+               could total 99% and raise the panel's own totals warning. */
+            if (el) el.value = String(Number(res.mix[v.id]) || 0);
+        });
+        const select = document.getElementById('surface');
+        const asPreset = Object.keys(SURFACE_PRESETS)
+            .find((id) => surfaceMixMatchesPreset(getSurfaceMix(), SURFACE_PRESETS[id]));
+        if (select) select.value = asPreset || 'custom';
+        renderSurfaceMix();
+        if (typeof saveForm === 'function') saveForm();
+        updateRouteLoadState();
+        /* Two honest numbers: how much of the route sits on a mapped way, and
+           how much the map actually describes (has a surface tag). The mix
+           covers the tagged part alone. */
+        const matchedPct = Math.round(res.coverage * 1000) / 10;
+        const taggedPct = Math.round((surfaceMixTotal(res.mix) / 100) * res.matched / res.sampled * 1000) / 10;
+        setSurfaceOsmStatus('OpenStreetMap: ' + taggedPct + '% of the sampled points carry a surface tag'
+            + ' (' + matchedPct + '% sit on a mapped way). The mix below covers the tagged ones'
+            + (taggedPct >= 99.9 ? '.' : ' — the rest is not guessed.'), false);
+    }).catch(() => {
+        setSurfaceOsmStatus('OpenStreetMap could not be reached — try again later.', true);
+    }).then(() => {
+        surfaceOsmBusy = false;
+        surfaceOsmButtonState();
+    });
 }
 
 function efficiencyText(eff) {
@@ -4158,6 +4233,7 @@ function updateRouteLoadState() {
 
     const changeBtn = document.getElementById('changeFileBtn');
     if (changeBtn) changeBtn.classList.toggle('hidden', !(analysisSourceLabel || loadedRides.length));
+    surfaceOsmButtonState();
 }
 
 function initRouteSections() {
