@@ -359,7 +359,17 @@
                                             <option value="gravel">Gravel</option>
                                             <option value="mixed" selected>Mixed trail</option>
                                             <option value="technical">Technical MTB</option>
+                                            <option value="custom">Custom mix</option>
                                         </select>
+                                        <details id="surfaceMixPanel" class="collapsible">
+                                            <summary>
+                                                <span class="collapsible-title">Composition</span>
+                                                <span id="surfaceMixSummary" class="hint"></span>
+                                                <span class="collapsible-chevron">▸</span>
+                                            </summary>
+                                            <div id="surfaceMixBody" class="track-list"></div>
+                                            <p id="surfaceMixHint" class="hint hidden" style="padding: 0 .6rem .55rem"></p>
+                                        </details>
                                     </div>
                                     <div class="field">
                                         <label for="reservePercent">Reserve at finish</label>
@@ -749,7 +759,19 @@
                             <div class="kb-grid">
                                 <div class="kb-tile">
                                     <h4>Input</h4>
-                                    <p>Drop a GPX/KML route or a <code class="code-inline">.proto</code> recording — or type a distance and elevation gain by hand; with a file the fields are filled from it and stay editable. Surface type and the reserve you want left at the finish complete the picture.</p>
+                                    <p>Drop a GPX/KML route or a <code class="code-inline">.proto</code> recording — or type a distance and elevation gain by hand; with a file the fields are filled from it and stay editable. Surface composition and the reserve you want left at the finish complete the picture.</p>
+                                </div>
+                                <div class="kb-tile">
+                                    <h4>Surface composition — the six voices</h4>
+                                    <p>Say what you can see under the wheels, not what the trail is called: the mix is how much of the route is fast, how much is rough and how much is deep. Where OpenStreetMap is asked about a way's surface, your mix is checked against it; the figures themselves stay the app's estimates, not measurements.</p>
+                                    <ul class="kb-fields">
+                                        <li><strong>Tarmac</strong> — smooth asphalt: the fastest voice and the cheapest per kilometre.</li>
+                                        <li><strong>Compacted gravel</strong> — gravel pressed into a firm track: almost as fast as tarmac, a little more rolling resistance.</li>
+                                        <li><strong>Packed dirt</strong> — dirt hardened by traffic: predictable when dry, slower and softer once it dampens.</li>
+                                        <li><strong>Mixed stones and roots</strong> — broken ground with loose stones: grip and line choice cost more than speed.</li>
+                                        <li><strong>Rock and roots</strong> — steep, blocked terrain: low speeds and short bursts of torque dominate the energy.</li>
+                                        <li><strong>Mud or sand</strong> — soft ground that swallows the wheels: the heaviest of the six, and the hardest to estimate.</li>
+                                    </ul>
                                 </div>
                                 <div class="kb-tile">
                                     <h4>Where the numbers come from</h4>
