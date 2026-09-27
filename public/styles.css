@@ -1572,6 +1572,12 @@ code {
 .collapsible[open] .collapsible-chevron { transform: rotate(90deg); }
 .collapsible > .track-list { padding: .5rem .6rem; border-top: 1px solid var(--border); }
 
+/* Il lettore OSM: un bottone vero (fondo e bordo, non solo testo) e un po'
+   d'aria sopra la Composition, che non deve toccare il selettore Surface. */
+#surfaceMixPanel { margin-top: .4rem; }
+#surfaceOsmBtn { background: var(--surface); border-color: var(--border-strong); color: var(--ink); }
+#surfaceOsmBtn:hover:not(:disabled) { background: var(--surface-2); border-color: var(--faint); }
+
 /* Card compatta del riepilogo file */
 .kv-compact { gap: .05rem; padding: .7rem .8rem; }
 .summary-stack:not(.hidden) { display: flex; flex-direction: column; gap: .5rem; }

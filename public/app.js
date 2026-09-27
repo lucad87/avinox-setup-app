@@ -423,7 +423,7 @@ function onSurfaceOsmClick() {
     surfaceOsmButtonState();
     setSurfaceOsmStatus('Reading OpenStreetMap…', false);
     AvinoxOsm.fetchSurfaceMix(points, { sampleM: 500 }).then((res) => {
-        if (!res || !res.ok || !(res.matched > 0)) {
+        if (!res || !res.ok || !(res.tagged > 0)) {
             const reason = res && res.reason;
             setSurfaceOsmStatus(
                 reason === 'timeout' ? 'OpenStreetMap did not answer in time — try again.'
@@ -433,11 +433,19 @@ function onSurfaceOsmClick() {
                 true);
             return;
         }
+        /* Whole numbers only — the inputs step by 1, and a decimal trips the
+           browser's own validation and blocks Analyze. Nudge the largest
+           voice so the fill lands exactly on the 100% the server uses. */
+        const values = {};
+        SURFACE_VOICES.forEach((v) => { values[v.id] = Math.round(Number(res.mix[v.id]) || 0); });
+        const mixSum = SURFACE_VOICES.reduce((acc, v) => acc + values[v.id], 0);
+        if (mixSum !== 100) {
+            const top = SURFACE_VOICES.slice().sort((a, b) => values[b.id] - values[a.id])[0];
+            values[top.id] = Math.max(0, Math.min(100, values[top.id] + (100 - mixSum)));
+        }
         SURFACE_VOICES.forEach((v) => {
             const el = document.getElementById('mix-' + v.id);
-            /* The reader's own one-decimal share: rounding to whole numbers
-               could total 99% and raise the panel's own totals warning. */
-            if (el) el.value = String(Number(res.mix[v.id]) || 0);
+            if (el) el.value = String(values[v.id]);
         });
         const select = document.getElementById('surface');
         const asPreset = Object.keys(SURFACE_PRESETS)
@@ -450,7 +458,7 @@ function onSurfaceOsmClick() {
            how much the map actually describes (has a surface tag). The mix
            covers the tagged part alone. */
         const matchedPct = Math.round(res.coverage * 1000) / 10;
-        const taggedPct = Math.round((surfaceMixTotal(res.mix) / 100) * res.matched / res.sampled * 1000) / 10;
+        const taggedPct = Math.round((res.tagged / res.sampled) * 1000) / 10;
         setSurfaceOsmStatus('OpenStreetMap: ' + taggedPct + '% of the sampled points carry a surface tag'
             + ' (' + matchedPct + '% sit on a mapped way). The mix below covers the tagged ones'
             + (taggedPct >= 99.9 ? '.' : ' — the rest is not guessed.'), false);
